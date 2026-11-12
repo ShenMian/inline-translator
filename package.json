@@ -1,0 +1,24 @@
+{
+  "name": "inline-translator",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "A lean inline web page translator",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt --browser firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build --browser firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip --browser firefox",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.17"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "wxt": "^0.21.5"
+  }
+}

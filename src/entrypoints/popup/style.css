@@ -1,0 +1,66 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #2563eb;
+  --panel: #f9fafb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111827;
+    --fg: #f3f4f6;
+    --muted: #9ca3af;
+    --border: #374151;
+    --panel: #1f2937;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  width: 300px;
+  margin: 0;
+  padding: 14px;
+  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.logo {
+  width: 34px; height: 34px; border-radius: 9px;
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 700;
+}
+.title h1 { margin: 0; font-size: 15px; }
+.title p { margin: 0; font-size: 11px; color: var(--muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.primary {
+  width: 100%; padding: 9px 0; margin-bottom: 12px;
+  border: none; border-radius: 8px;
+  background: var(--accent); color: #fff;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+}
+button.primary:hover { filter: brightness(1.08); }
+button.primary.on { background: #6b7280; }
+.row { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; }
+.row label { color: var(--muted); }
+select, input[type="text"], input[type="password"], textarea {
+  background: var(--panel); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 8px; font: inherit; max-width: 170px;
+}
+#openai-panel { display: grid; gap: 6px; margin: 8px 0; }
+#openai-panel[hidden] { display: none; }
+#openai-panel input { max-width: none; width: 100%; }
+.check { display: flex; align-items: center; gap: 6px; margin: 7px 0; cursor: pointer; }
+details { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
+summary { cursor: pointer; color: var(--muted); }
+textarea { width: 100%; max-width: none; margin-top: 8px; resize: vertical; font-family: ui-monospace, monospace; font-size: 11px; }
+.rules-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.rules-actions button {
+  border: 1px solid var(--border); background: var(--panel); color: var(--fg);
+  border-radius: 6px; padding: 4px 12px; cursor: pointer; font: inherit;
+}
+#rules-msg { font-size: 11px; color: var(--muted); }
+#rules-msg.err { color: #dc2626; }
+footer { margin-top: 12px; font-size: 11px; color: var(--muted); text-align: center; }

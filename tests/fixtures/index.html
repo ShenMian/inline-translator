@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inline Translator fixture</title>
+<style>
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 800px; margin: 24px auto; padding: 0 16px; }
+  .hidden { display: none; }
+  .contents { display: contents; }
+  .flex { display: flex; gap: 8px; }
+  .flex > div { padding: 4px; border: 1px solid #ccc; }
+  pre { background: #f5f5f5; padding: 8px; }
+  table { border-collapse: collapse; }
+  td { border: 1px solid #ccc; padding: 6px; }
+  [contenteditable] { border: 1px dashed #f59e0b; padding: 6px; }
+  button { margin: 4px; }
+</style>
+</head>
+<body>
+<h1 id="title">The Quick Brown Fox</h1>
+<p id="p1">Hello <b>world</b>, visit <a href="https://example.com" id="link1">our site</a> for <code>inline code</code> and more.</p>
+<p id="p-link">See <a id="link-dark" href="https://example.com/dark" style="color:rgb(51,51,51);text-decoration:none">dark link</a> and <a id="link-blue" href="https://example.com/blue">blue link</a>.</p>
+<p id="p2">Second paragraph with <span><em>nested <strong>inline</strong> elements</em></span> to test grouping.</p>
+<div class="contents"><p id="p3">Paragraph inside display contents wrapper.</p></div>
+<div id="blockdiv">Text directly in div <span>with inline span</span> tail.</div>
+<pre id="pre1">const x = 42; // should stay original
+console.log(x);</pre>
+<p id="p4">Reference to the <code>pre block</code> above stays atomic.</p>
+<div contenteditable="true" id="editable">This editable text must not be translated.</div>
+<p class="hidden" id="hiddenp">Hidden paragraph must be skipped.</p>
+<div id="fallback-host">Light fallback prose never renders once the shadow attaches.</div>
+<p translate="no" id="notrans">This has translate no attribute.</p>
+<p class="notranslate" id="notrans2">This has notranslate class.</p>
+<p id="numbers">12345 67890</p>
+<p id="url">https://example.com/some/path</p>
+<p id="samelang">これはにほんごのパラグラフです。もくひょうげんごもにほんごなのでスキップされます。</p>
+<div class="flex" id="flexbox"><div id="flex1">Flex item one</div><div id="flex2">Flex item two</div></div>
+<div class="flex" id="flexdirect">Badge-like direct flex text</div>
+<table><tr><td id="td1">Cell one text</td><td id="td2">Cell two text</td></tr></table>
+<p id="mixed">Mixed language text should still translate.</p>
+<p id="p-styled" style="font-size:22px;font-weight:700;color:rgb(180,40,40);letter-spacing:1px;text-transform:uppercase;font-family:Georgia,serif;line-height:1.9">Styled paragraph keeps its typography.</p>
+<p id="p-fancy"><span style="font-size:19px;font-weight:600;color:rgb(30,110,200)">Single styled inline element.</span></p>
+<a href="#" id="badnest"><div>Block inside anchor</div></a>
+<div id="shadow-host"></div>
+<iframe id="frame1" src="frame.html" width="320" height="90"></iframe>
+<div>
+  <button id="add-btn">Add paragraph</button>
+  <button id="mutate-btn">Mutate text</button>
+</div>
+<div id="dynamic"></div>
+<div id="shell"><header>Shell header</header><span id="stray">Stray top-level UI text must not translate.</span><p id="shell-p">Nested content inside shell still translates.</p></div>
+<p id="long"></p>
+<script>
+  const host = document.getElementById('shadow-host');
+  const sr = host.attachShadow({ mode: 'open' });
+  sr.innerHTML = '<style>p{color:#333}</style><p id="shadow-p">Text inside open shadow root.</p>';
+  const fb = document.getElementById('fallback-host');
+  fb.attachShadow({ mode: 'open' }).innerHTML = '<p id="fallback-shadow-p">Shadow prose replaces the fallback.</p>';
+  document.getElementById('long').textContent =
+    'This is a long sentence used to verify chunked translation of very long paragraphs. '.repeat(90);
+  document.getElementById('add-btn').addEventListener('click', () => {
+    const p = document.createElement('p');
+    p.id = 'added';
+    p.textContent = 'Dynamically added paragraph after click.';
+    document.getElementById('dynamic').appendChild(p);
+  });
+  document.getElementById('mutate-btn').addEventListener('click', () => {
+    document.getElementById('p1').firstChild.nodeValue = 'Changed hello ';
+  });
+</script>
+</body>
+</html>
