@@ -126,6 +126,21 @@ def set_openai(pop, ext_id, port):
     pop.wait_for_function("() => chrome.storage.local.get('settings').then(s => (s.settings||{}).service === 'openai')")
 
 
+def fresh_page(ctx, pop):
+    """Start a scenario with a cold cache.
+
+    Translations now persist across navigations, so a prior scenario's successful translations
+    would otherwise be served from cache and the failing mock would never be hit. Clear storage
+    and use a new tab: the previous tab stays open (idle), so its pagehide flush can't resurrect
+    the cleared cache before the new tab hydrates.
+    """
+    pop.evaluate("() => chrome.storage.local.remove('cache')")
+    pop.wait_for_function("() => chrome.storage.local.get('cache').then(s => !s.cache)")
+    pg = ctx.new_page()
+    pg.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+    return pg
+
+
 def main():
     mock = ThreadingHTTPServer(("127.0.0.1", 8766), MockOpenAI)
     threading.Thread(target=mock.serve_forever, daemon=True).start()
@@ -161,7 +176,7 @@ def main():
         # Scenario A: mock fails the first 2 requests then recovers → auto-retry must translate the page
         MockOpenAI.fail_first = 2
         MockOpenAI.hits = 0
-        page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+        page = fresh_page(ctx, pop)
         toggle(page)
         time.sleep(0.4)
         st = floating_state(page)
@@ -176,7 +191,7 @@ def main():
         # Scenario B: mock always fails → retry button appears; clicking it re-enqueues
         MockOpenAI.fail_first = 10**9
         MockOpenAI.hits = 0
-        page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+        page = fresh_page(ctx, pop)
         toggle(page)
         # MAX_ATTEMPTS=3 with 1.2s + 2.4s backoff → failures settle after ~4s
         deadline = time.time() + 20
@@ -198,7 +213,7 @@ def main():
         MockOpenAI.fail_first = 10**9
         MockOpenAI.fail_status = 401
         MockOpenAI.hits = 0
-        page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+        page = fresh_page(ctx, pop)
         toggle(page)
         deadline = time.time() + 15
         st = {}
@@ -221,7 +236,7 @@ def main():
         MockOpenAI.delay = 0
         MockOpenAI.hits = 0
         MockOpenAI.hit_times = []
-        page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+        page = fresh_page(ctx, pop)
         toggle(page)
         n = wait_stable(page, timeout=30, stable=2)
         check("D: recovered after Retry-After cooldown", n >= 16, f"count={n} hits={MockOpenAI.hits}")
@@ -237,7 +252,7 @@ def main():
         MockOpenAI.delay = 3
         MockOpenAI.hits = 0
         MockOpenAI.hit_times = []
-        page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+        page = fresh_page(ctx, pop)
         toggle(page)
         time.sleep(0.6)  # request inflight (mock holding the response)
         st = floating_state(page)

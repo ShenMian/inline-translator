@@ -1,6 +1,7 @@
 import { defineContentScript } from 'wxt/utils/define-content-script';
 import { browser } from 'wxt/browser';
 import { Engine } from '../core/engine';
+import { hydrateCache } from '../lib/cache';
 import { langFamily, pageLang } from '../lib/lang';
 import { loadSettings } from '../lib/settings';
 import { createFloatingButton } from '../ui/floating';
@@ -22,6 +23,7 @@ export default defineContentScript({
     }
 
     const settings = await loadSettings();
+    await hydrateCache();
     const engine = new Engine(settings);
     ctx.onInvalidated(() => engine.destroy());
 
