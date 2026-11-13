@@ -70,7 +70,9 @@ async function one(text: string, to: string): Promise<string> {
     }
     if (lastErr) throw new ServiceError(lastErr, true);
   }
-  return out.join(' ');
+  // CJK/Thai run sentences together without spaces; joining with ' ' would inject stray spaces
+  const sep = /^(zh|ja|ko|th)/i.test(to) ? '' : ' ';
+  return out.join(sep);
 }
 
 export const google: TranslateService = {
