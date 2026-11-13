@@ -311,7 +311,7 @@ def main():
         page.on("console", lambda m: ilt_errors.append(m.text) if "[ilt]" in m.text else None)
         page.on("pageerror", lambda e: ilt_errors.append(str(e)))
 
-        # The same-language fixture is Japanese; switch the target language via the popup
+        # Wake the background service worker so the extension id can be read from it.
         page.goto("http://127.0.0.1:8765/", wait_until="domcontentloaded")
         ext_id = ""
         deadline = time.time() + 15
@@ -321,12 +321,18 @@ def main():
                     ext_id = sw.url.split("/")[2]
             if not ext_id:
                 time.sleep(0.3)
+
+        # The same-language fixture is Japanese. Commit the target language, then reset the page
+        # before the fixture run: reloading straight after the popup write races chrome.storage's
+        # cross-process propagation, so the content script occasionally read the stale default
+        # (zh-CN) and translated the Japanese #samelang paragraph instead of skipping it.
         pop = ctx.new_page()
         pop.goto(f"chrome-extension://{ext_id}/popup.html")
         pop.wait_for_selector("#lang")
         pop.select_option("#lang", "ja")
         pop.wait_for_function("() => chrome.storage.local.get('settings').then(s => (s.settings || {}).targetLang === 'ja')")
         pop.close()
+        page.goto("about:blank", wait_until="domcontentloaded")
 
         run_fixture(page)
         if "--fixtures-only" not in sys.argv:
