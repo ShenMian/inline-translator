@@ -14,3 +14,8 @@ export class ServiceError extends Error {
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Transient failures worth retrying: rate limit (429), server error (5xx), or network failure (0). */
+export function retryableStatus(status: number): boolean {
+  return status === 429 || status >= 500 || status === 0;
+}

@@ -1,6 +1,6 @@
 import { proxyFetch } from '../lib/messaging';
 import { richToPlain } from '../core/serialize';
-import { ServiceError, type TranslateService } from './types';
+import { retryableStatus, ServiceError, type TranslateService } from './types';
 
 /** Edge internal unauthenticated endpoint; body is a plain string array, natively batched. */
 const ENDPOINT = 'https://edge.microsoft.com/translate/translatetext';
@@ -23,7 +23,7 @@ export const edge: TranslateService = {
       body: JSON.stringify(texts.map(richToPlain)),
     });
     if (!res.ok) {
-      throw new ServiceError(`Edge ${res.status}: ${(res.body || res.error || '').slice(0, 200)}`, res.status === 429);
+      throw new ServiceError(`Edge ${res.status}: ${(res.body || res.error || '').slice(0, 200)}`, retryableStatus(res.status));
     }
     const data = JSON.parse(res.body) as { translations?: { text?: string }[] }[];
     if (!Array.isArray(data) || data.length !== texts.length) {

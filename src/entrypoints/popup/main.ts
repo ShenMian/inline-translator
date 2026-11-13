@@ -8,6 +8,8 @@ let settings: Settings;
 let tabId: number | undefined;
 let host = '';
 let active = false;
+let failed = 0;
+let lastError = '';
 
 async function notifyContent(): Promise<void> {
   if (tabId == null) return;
@@ -22,6 +24,32 @@ function renderToggle(): void {
   const btn = $<HTMLButtonElement>('toggle');
   btn.textContent = active ? 'Restore original' : 'Translate page';
   btn.classList.toggle('on', active);
+}
+
+function renderFail(): void {
+  $('fail-row').hidden = failed === 0;
+  const msg = $('fail-msg');
+  msg.textContent = `${failed} failed`;
+  msg.title = lastError;
+}
+
+async function refreshState(): Promise<void> {
+  if (tabId != null) {
+    try {
+      const s = (await browser.tabs.sendMessage(tabId, { type: 'get-state' }, { frameId: 0 })) as {
+        active: boolean;
+        failed?: number;
+        error?: string;
+      };
+      active = !!s?.active;
+      failed = s?.failed ?? 0;
+      lastError = s?.error ?? '';
+    } catch {
+      active = false;
+    }
+  }
+  renderToggle();
+  renderFail();
 }
 
 function renderForm(): void {
@@ -62,26 +90,27 @@ async function init(): Promise<void> {
     }
   }
   $('host').textContent = host || 'Current page';
-  if (tabId != null) {
-    try {
-      const state = (await browser.tabs.sendMessage(tabId, { type: 'get-state' }, { frameId: 0 })) as { active: boolean };
-      active = !!state?.active;
-    } catch {
-      active = false;
-    }
-  }
-  renderToggle();
+  await refreshState();
   renderForm();
 
   $<HTMLButtonElement>('toggle').addEventListener('click', async () => {
     if (tabId == null) return;
     try {
-      const res = (await browser.tabs.sendMessage(tabId, { type: 'toggle' })) as { active: boolean };
-      active = !!res?.active;
+      await browser.tabs.sendMessage(tabId, { type: 'toggle' });
     } catch {
-      active = !active;
+      /* page not injected (chrome:// etc.) */
     }
-    renderToggle();
+    await refreshState();
+  });
+
+  $<HTMLButtonElement>('retry').addEventListener('click', async () => {
+    if (tabId == null) return;
+    try {
+      await browser.tabs.sendMessage(tabId, { type: 'retry' });
+    } catch {
+      /* page not injected */
+    }
+    await refreshState();
   });
 
   $<HTMLSelectElement>('lang').addEventListener('change', (e) => patch({ targetLang: (e.target as HTMLSelectElement).value }));

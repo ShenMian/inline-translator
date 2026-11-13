@@ -1,6 +1,6 @@
 import { proxyFetch } from '../lib/messaging';
 import type { Settings } from '../lib/settings';
-import { ServiceError, type TranslateService } from './types';
+import { retryableStatus, ServiceError, type TranslateService } from './types';
 
 const LANG_NAMES: Record<string, string> = {
   'zh-CN': 'Simplified Chinese',
@@ -30,7 +30,7 @@ function parseArray(content: string, expected: number): string[] {
   if (start >= 0 && end > start) s = s.slice(start, end + 1);
   const arr = JSON.parse(s);
   if (!Array.isArray(arr) || arr.length !== expected) {
-    throw new ServiceError('OpenAI: response array length mismatch');
+    throw new ServiceError('OpenAI: response array length mismatch', true);
   }
   return arr.map((x) => String(x));
 }
@@ -60,7 +60,7 @@ export function createOpenAI(cfg: Settings['openai']): TranslateService {
         }),
       });
       if (!res.ok) {
-        throw new ServiceError(`OpenAI ${res.status}: ${(res.body || res.error || '').slice(0, 300)}`, res.status === 429);
+        throw new ServiceError(`OpenAI ${res.status}: ${(res.body || res.error || '').slice(0, 300)}`, retryableStatus(res.status));
       }
       const data = JSON.parse(res.body) as { choices?: { message?: { content?: string } }[] };
       const content = data.choices?.[0]?.message?.content;

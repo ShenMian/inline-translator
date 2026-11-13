@@ -76,12 +76,17 @@ async function one(text: string, to: string): Promise<string> {
 export const google: TranslateService = {
   id: 'google',
   async translate(texts, to) {
-    const out = new Array<string>(texts.length);
+    const out = new Array<string>(texts.length).fill('');
     let i = 0;
     const workers = Array.from({ length: Math.min(CONCURRENCY, texts.length) }, async () => {
       while (i < texts.length) {
         const idx = i++;
-        out[idx] = await one(texts[idx]!, to);
+        // Isolate per-item failures so one bad unit doesn't drop its siblings; the engine retries empties
+        try {
+          out[idx] = await one(texts[idx]!, to);
+        } catch {
+          out[idx] = '';
+        }
       }
     });
     await Promise.all(workers);

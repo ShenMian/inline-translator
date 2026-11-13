@@ -29,12 +29,12 @@ export default defineContentScript({
     const syncFloating = (show: boolean) => {
       if (window.top !== window) return;
       if (show && !floating) {
-        floating = createFloatingButton(() => engine.toggle(), () => engine.active);
-        engine.onState = () => floating?.sync();
+        floating = createFloatingButton(() => engine.toggle(), () => engine.retryFailed(), () => engine.status());
+        engine.onStatus = () => floating?.sync();
       } else if (!show && floating) {
         floating.host.remove();
         floating = null;
-        engine.onState = undefined;
+        engine.onStatus = undefined;
       }
     };
     syncFloating(settings.floating);
@@ -45,8 +45,12 @@ export default defineContentScript({
           engine.toggle();
           sendResponse({ active: engine.active });
           break;
+        case 'retry':
+          engine.retryFailed();
+          sendResponse(engine.status());
+          break;
         case 'get-state':
-          sendResponse({ active: engine.active, host: location.hostname });
+          sendResponse({ ...engine.status(), host: location.hostname });
           break;
         case 'settings-changed':
           void loadSettings().then((s) => {

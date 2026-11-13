@@ -3,7 +3,7 @@ import { isSameLang } from '../lib/lang';
 import { joinSelectors, matchRules, type EffectiveRule } from '../lib/rules';
 import type { Settings } from '../lib/settings';
 import { BUILTIN_RULES } from '../rules/builtin';
-import { getService, type TranslateService } from '../services';
+import { getService, ServiceError, type TranslateService } from '../services';
 import { Watcher } from './observe';
 import { injectStyles, removeWrapper, renderTranslation } from './render';
 import { restore } from './serialize';
@@ -16,6 +16,16 @@ const BATCH_DELAY = 300;
 const BATCH_MAX_WAIT = 1200;
 const MAX_INFLIGHT = 2;
 const RESCAN_DEBOUNCE = 150;
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY = 1200;
+
+/** Live engine state for the floating button / popup: busy drives the spinner, failed the retry affordance. */
+export interface EngineStatus {
+  active: boolean;
+  busy: boolean;
+  failed: number;
+  error: string;
+}
 
 /**
  * Engine orchestration: scan extraction → viewport-lazy translation → batched requests →
@@ -24,7 +34,7 @@ const RESCAN_DEBOUNCE = 150;
  */
 export class Engine {
   active = false;
-  onState?: (active: boolean) => void;
+  onStatus?: (s: EngineStatus) => void;
 
   private settings: Settings;
   private service: TranslateService;
@@ -44,6 +54,12 @@ export class Engine {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private firstQueuedAt = 0;
   private inflight = 0;
+
+  private attempts = new WeakMap<Paragraph, number>();
+  private failed = new Set<Paragraph>();
+  private retryTimers = new Set<ReturnType<typeof setTimeout>>();
+  private retryScheduled = 0;
+  private lastError = '';
 
   private dirty = new Set<Element>();
   private dirtyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -95,7 +111,7 @@ export class Engine {
     this.scanRoot(document.body);
     this.watcher.observe(document.body);
     this.watcher.observeDocument();
-    this.onState?.(true);
+    this.emitStatus();
   }
 
   stop(): void {
@@ -115,15 +131,47 @@ export class Engine {
     this.queueChars = 0;
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
+    for (const t of this.retryTimers) clearTimeout(t);
+    this.retryTimers.clear();
+    this.retryScheduled = 0;
+    this.failed.clear();
+    this.attempts = new WeakMap();
+    this.lastError = '';
     this.dirty.clear();
     if (this.dirtyTimer) clearTimeout(this.dirtyTimer);
     this.dirtyTimer = null;
-    this.onState?.(false);
+    this.emitStatus();
   }
 
   destroy(): void {
     this.destroyed = true;
     this.stop();
+  }
+
+  status(): EngineStatus {
+    return {
+      active: this.active,
+      busy: this.queue.length > 0 || this.inflight > 0 || this.retryScheduled > 0,
+      failed: this.failed.size,
+      error: this.lastError,
+    };
+  }
+
+  /** Re-enqueue paragraphs that exhausted their automatic retries (manual recovery). */
+  retryFailed(): void {
+    if (!this.active) return;
+    const list = Array.from(this.failed);
+    this.failed.clear();
+    this.lastError = '';
+    for (const p of list) {
+      this.attempts.delete(p);
+      if (p.anchor.isConnected && this.nodePara.get(p.anchor) === p) this.enqueue(p);
+    }
+    this.emitStatus();
+  }
+
+  private emitStatus(): void {
+    this.onStatus?.(this.status());
   }
 
   updateSettings(s: Settings): void {
@@ -239,6 +287,7 @@ export class Engine {
     }
     this.queue.push(p);
     this.queueChars += p.rich.length;
+    if (this.queue.length === 1 && this.inflight === 0) this.emitStatus();
     if (!this.firstQueuedAt) this.firstQueuedAt = Date.now();
     if (this.queue.length >= BATCH_ITEMS || this.queueChars >= BATCH_CHARS || Date.now() - this.firstQueuedAt >= BATCH_MAX_WAIT) {
       this.flush();
@@ -270,15 +319,46 @@ export class Engine {
       .then((results) => {
         results.forEach((tr, i) => {
           const p = batch[i];
-          if (!p || !tr) return;
+          if (!p) return;
+          // Empty result = this unit failed while its siblings may have succeeded; retry it alone
+          if (!tr) {
+            this.handleItemFailure(p, true);
+            return;
+          }
           cacheSet(cacheKey(serviceId, to, p.rich), tr);
           this.applyResult(p, tr);
         });
       })
-      .catch((e) => console.warn('[ilt] translate failed:', e))
+      .catch((e) => {
+        const retryable = e instanceof ServiceError ? e.retryable : true;
+        this.lastError = e instanceof Error ? e.message : String(e);
+        console.warn('[ilt] translate failed:', e);
+        for (const p of batch) this.handleItemFailure(p, retryable);
+      })
       .finally(() => {
         this.inflight--;
+        this.emitStatus();
       });
+  }
+
+  /** Bounded exponential-backoff retry for a failed unit; mark it failed once attempts run out. */
+  private handleItemFailure(p: Paragraph, retryable: boolean): void {
+    if (!this.active || this.nodePara.get(p.anchor) !== p) return;
+    const n = (this.attempts.get(p) ?? 0) + 1;
+    this.attempts.set(p, n);
+    if (retryable && n < MAX_ATTEMPTS) {
+      this.retryScheduled++;
+      const t = setTimeout(() => {
+        this.retryTimers.delete(t);
+        this.retryScheduled--;
+        if (this.active && this.nodePara.get(p.anchor) === p) this.enqueue(p);
+        this.emitStatus();
+      }, RETRY_BASE_DELAY * 2 ** (n - 1));
+      this.retryTimers.add(t);
+    } else {
+      this.failed.add(p);
+    }
+    this.emitStatus();
   }
 
   private applyResult(p: Paragraph, tr: string): void {
@@ -287,6 +367,8 @@ export class Engine {
     if (!nodes.length) return;
     renderTranslation(p, nodes, this.settings.targetLang);
     this.wrappers.add(p);
+    this.failed.delete(p);
+    this.attempts.delete(p);
   }
 
   // ---------- dynamic rescan ----------
@@ -341,5 +423,13 @@ export class Engine {
         this.wrappers.delete(p);
       }
     }
+    let pruned = false;
+    for (const p of this.failed) {
+      if (!p.anchor.isConnected) {
+        this.failed.delete(p);
+        pruned = true;
+      }
+    }
+    if (pruned) this.emitStatus();
   }
 }

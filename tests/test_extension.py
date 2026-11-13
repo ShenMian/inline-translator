@@ -48,7 +48,7 @@ def wait_stable(page, timeout=40, stable=1.5, min_count=1):
 
 def toggle(page):
     page.wait_for_selector("[data-ilt-ui]", timeout=15000)
-    page.locator("[data-ilt-ui] button").click()
+    page.locator("[data-ilt-ui] button.main").click()
 
 
 def no_wrapper_after(page, sel):

@@ -17,6 +17,7 @@ export interface ProxyResponse {
 
 export type ContentMessage =
   | { type: 'toggle' }
+  | { type: 'retry' }
   | { type: 'get-state' }
   | { type: 'settings-changed' };
 
