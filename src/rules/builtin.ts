@@ -61,4 +61,17 @@ export const BUILTIN_RULES: SiteRule[] = [
     matches: ['*://discord.com/*'],
     ignore: ['nav', '[class*="sidebar"]', '[class*="guilds"]', '[aria-label="Servers"]'],
   },
+  {
+    matches: ['*://docs.python.org/*'],
+    ignore: ['.sphinxsidebar', '.related', '.footer', '.headerlink', '.copybutton'],
+  },
+  {
+    matches: ['*://dev.to/*', '*://*.forem.com/*'],
+    ignore: ['nav', '.crayons-layout__left-sidebar', '.crayons-layout__right-sidebar'],
+  },
+  {
+    matches: ['*://react.dev/*'],
+    // Tailwind arbitrary-height utility truncates the taller translated line (verified against Immersive Translate)
+    css: "[class*='h-[40px]']{height:unset !important;}",
+  },
 ];
