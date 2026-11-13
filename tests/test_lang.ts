@@ -33,4 +33,4 @@ check('Japanese skipped for Japanese target', isSameLang('これは日本語の�
 check('langFamily zh-CN -> zh', langFamily('zh-CN') === 'zh');
 
 console.log(`\n${pass}/${pass + fail} passed`);
-if (fail) process.exit(1);
+if (fail) throw new Error(`${fail} language detection checks failed`);

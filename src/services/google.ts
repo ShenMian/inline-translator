@@ -1,5 +1,5 @@
 import { proxyFetch } from '../lib/messaging';
-import { ServiceError, sleep, type TranslateService } from './types';
+import { parseRetryAfter, ServiceError, sleep, type TranslateService } from './types';
 
 const ENDPOINT = 'https://translate.googleapis.com/translate_a/single';
 const CONCURRENCY = 6;
@@ -29,7 +29,7 @@ function splitLong(text: string): string[] {
   return parts;
 }
 
-async function one(text: string, to: string): Promise<string> {
+async function one(text: string, to: string, signal?: AbortSignal): Promise<string> {
   const chunks = splitLong(text);
   const out: string[] = [];
   for (const chunk of chunks) {
@@ -43,8 +43,9 @@ async function one(text: string, to: string): Promise<string> {
       q: chunk,
     });
     let lastErr = '';
+    let lastRetryAfter: string | null | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await proxyFetch({ url: `${ENDPOINT}?${params}`, method: 'GET' });
+      const res = await proxyFetch({ url: `${ENDPOINT}?${params}`, method: 'GET' }, signal);
       if (res.ok) {
         const data = JSON.parse(res.body) as { sentences?: { trans?: string }[] };
         const joined = (data.sentences ?? []).map((s) => s.trans ?? '').join('');
@@ -62,13 +63,14 @@ async function one(text: string, to: string): Promise<string> {
         break;
       }
       lastErr = `Google ${res.status}: ${(res.body || res.error || '').slice(0, 200)}`;
+      lastRetryAfter = res.retryAfter;
       if ((res.status === 429 || res.status >= 500) && attempt === 0) {
         await sleep(800);
         continue;
       }
       break;
     }
-    if (lastErr) throw new ServiceError(lastErr, true);
+    if (lastErr) throw new ServiceError(lastErr, true, parseRetryAfter(lastRetryAfter));
   }
   // CJK/Thai run sentences together without spaces; joining with ' ' would inject stray spaces
   const sep = /^(zh|ja|ko|th)/i.test(to) ? '' : ' ';
@@ -77,7 +79,7 @@ async function one(text: string, to: string): Promise<string> {
 
 export const google: TranslateService = {
   id: 'google',
-  async translate(texts, to) {
+  async translate(texts, to, signal) {
     const out = new Array<string>(texts.length).fill('');
     let i = 0;
     const workers = Array.from({ length: Math.min(CONCURRENCY, texts.length) }, async () => {
@@ -85,7 +87,7 @@ export const google: TranslateService = {
         const idx = i++;
         // Isolate per-item failures so one bad unit doesn't drop its siblings; the engine retries empties
         try {
-          out[idx] = await one(texts[idx]!, to);
+          out[idx] = await one(texts[idx]!, to, signal);
         } catch {
           out[idx] = '';
         }

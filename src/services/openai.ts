@@ -1,6 +1,6 @@
 import { proxyFetch } from '../lib/messaging';
 import type { Settings } from '../lib/settings';
-import { retryableStatus, ServiceError, type TranslateService } from './types';
+import { parseRetryAfter, retryableStatus, ServiceError, type TranslateService } from './types';
 
 const LANG_NAMES: Record<string, string> = {
   'zh-CN': 'Simplified Chinese',
@@ -38,7 +38,7 @@ function parseArray(content: string, expected: number): string[] {
 export function createOpenAI(cfg: Settings['openai']): TranslateService {
   return {
     id: 'openai',
-    async translate(texts, to) {
+    async translate(texts, to, signal) {
       if (!cfg.apiKey) throw new ServiceError('OpenAI: API key not configured');
       const langName = LANG_NAMES[to] ?? to;
       const system =
@@ -46,21 +46,28 @@ export function createOpenAI(cfg: Settings['openai']): TranslateService {
         'Strict rules: preserve all placeholders exactly as-is and in place — <tN>...</tN> are inline markup wrappers, {{N}} are atomic tokens; ' +
         'translate only natural language; keep URLs, code, numbers and product names unchanged; ' +
         'return ONLY a JSON array of translated strings in the same order, no explanations.';
-      const res = await proxyFetch({
-        url: `${cfg.baseUrl.replace(/\/+$/, '')}/chat/completions`,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-        body: JSON.stringify({
-          model: cfg.model,
-          temperature: 0,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: JSON.stringify(texts) },
-          ],
-        }),
-      });
+      const res = await proxyFetch(
+        {
+          url: `${cfg.baseUrl.replace(/\/+$/, '')}/chat/completions`,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+          body: JSON.stringify({
+            model: cfg.model,
+            temperature: 0,
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: JSON.stringify(texts) },
+            ],
+          }),
+        },
+        signal,
+      );
       if (!res.ok) {
-        throw new ServiceError(`OpenAI ${res.status}: ${(res.body || res.error || '').slice(0, 300)}`, retryableStatus(res.status));
+        throw new ServiceError(
+          `OpenAI ${res.status}: ${(res.body || res.error || '').slice(0, 300)}`,
+          retryableStatus(res.status),
+          parseRetryAfter(res.retryAfter),
+        );
       }
       const data = JSON.parse(res.body) as { choices?: { message?: { content?: string } }[] };
       const content = data.choices?.[0]?.message?.content;

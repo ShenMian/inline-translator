@@ -56,6 +56,7 @@ export class Engine {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private firstQueuedAt = 0;
   private inflight = 0;
+  private inflightCtrls = new Set<AbortController>();
 
   private attempts = new WeakMap<Paragraph, number>();
   private failed = new Set<Paragraph>();
@@ -137,6 +138,8 @@ export class Engine {
     for (const t of this.retryTimers) clearTimeout(t);
     this.retryTimers.clear();
     this.retryScheduled = 0;
+    for (const c of this.inflightCtrls) c.abort();
+    this.inflightCtrls.clear();
     this.failed.clear();
     this.attempts = new WeakMap();
     this.lastError = '';
@@ -318,10 +321,12 @@ export class Engine {
     this.queueChars = 0;
     this.firstQueuedAt = 0;
     this.inflight++;
+    const ctrl = new AbortController();
+    this.inflightCtrls.add(ctrl);
     const to = this.settings.targetLang;
     const serviceId = this.service.id;
     this.service
-      .translate(batch.map((p) => p.rich), to)
+      .translate(batch.map((p) => p.rich), to, ctrl.signal)
       .then((results) => {
         results.forEach((tr, i) => {
           const p = batch[i];
@@ -337,30 +342,34 @@ export class Engine {
       })
       .catch((e) => {
         const retryable = e instanceof ServiceError ? e.retryable : true;
+        const retryAfterMs = e instanceof ServiceError ? e.retryAfterMs : undefined;
         this.lastError = e instanceof Error ? e.message : String(e);
         this.lastErrorRetryable = retryable;
         console.warn('[ilt] translate failed:', e);
-        for (const p of batch) this.handleItemFailure(p, retryable);
+        for (const p of batch) this.handleItemFailure(p, retryable, retryAfterMs);
       })
       .finally(() => {
         this.inflight--;
+        this.inflightCtrls.delete(ctrl);
         this.emitStatus();
       });
   }
 
   /** Bounded exponential-backoff retry for a failed unit; mark it failed once attempts run out. */
-  private handleItemFailure(p: Paragraph, retryable: boolean): void {
+  private handleItemFailure(p: Paragraph, retryable: boolean, retryAfterMs?: number): void {
     if (!this.active || this.nodePara.get(p.anchor) !== p) return;
     const n = (this.attempts.get(p) ?? 0) + 1;
     this.attempts.set(p, n);
     if (retryable && n < MAX_ATTEMPTS) {
       this.retryScheduled++;
+      // Honor the server's Retry-After cooldown, but never retry sooner than our own backoff
+      const delay = Math.max(retryAfterMs ?? 0, RETRY_BASE_DELAY * 2 ** (n - 1));
       const t = setTimeout(() => {
         this.retryTimers.delete(t);
         this.retryScheduled--;
         if (this.active && this.nodePara.get(p.anchor) === p) this.enqueue(p);
         this.emitStatus();
-      }, RETRY_BASE_DELAY * 2 ** (n - 1));
+      }, delay);
       this.retryTimers.add(t);
     } else {
       this.failed.add(p);

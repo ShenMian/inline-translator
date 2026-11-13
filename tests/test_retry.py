@@ -31,31 +31,51 @@ def check(name, cond, detail=""):
 class MockOpenAI(BaseHTTPRequestHandler):
     fail_first = 2
     fail_status = 500
+    retry_after = None
+    fail_window = 0.0
+    window_start = None
+    delay = 0.0
     hits = 0
+    hit_times = []
 
     def log_message(self, *a):
         pass
 
     def do_POST(self):
+        now = time.time()
         MockOpenAI.hits += 1
+        MockOpenAI.hit_times.append(now)
         n = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(n))
-        if MockOpenAI.hits <= MockOpenAI.fail_first:
-            self.send_response(MockOpenAI.fail_status)
+        if MockOpenAI.fail_window > 0:
+            if MockOpenAI.window_start is None:
+                MockOpenAI.window_start = now
+            failing = (now - MockOpenAI.window_start) < MockOpenAI.fail_window
+        else:
+            failing = MockOpenAI.hits <= MockOpenAI.fail_first
+        if MockOpenAI.delay:
+            time.sleep(MockOpenAI.delay)
+        try:
+            if failing:
+                self.send_response(MockOpenAI.fail_status)
+                if MockOpenAI.retry_after:
+                    self.send_header("Retry-After", MockOpenAI.retry_after)
+                self.end_headers()
+                self.wfile.write(b'{"error":"mock failure"}')
+                return
+            texts = json.loads(body["messages"][1]["content"])
+            out = ["译文 " + t for t in texts]
+            data = json.dumps(
+                {"choices": [{"message": {"content": json.dumps(out, ensure_ascii=False)}}]},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
             self.end_headers()
-            self.wfile.write(b'{"error":"mock failure"}')
-            return
-        texts = json.loads(body["messages"][1]["content"])
-        out = ["译文 " + t for t in texts]
-        data = json.dumps(
-            {"choices": [{"message": {"content": json.dumps(out, ensure_ascii=False)}}]},
-            ensure_ascii=False,
-        ).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client aborted the request mid-flight
 
 
 def count_wrappers(page):
@@ -191,6 +211,42 @@ def main():
         check("C: no futile retry button for 401", not st.get("retryShow"), str(st))
         check("C: non-retryable settles without backoff", not st.get("busy"), str(st))
         toggle(page)
+
+        # Scenario D: 429 with Retry-After → backoff honors the server cooldown (~3s, not the 1.2s default)
+        MockOpenAI.fail_first = 0
+        MockOpenAI.fail_window = 1.5
+        MockOpenAI.window_start = None
+        MockOpenAI.fail_status = 429
+        MockOpenAI.retry_after = "3"
+        MockOpenAI.delay = 0
+        MockOpenAI.hits = 0
+        MockOpenAI.hit_times = []
+        page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+        toggle(page)
+        n = wait_stable(page, timeout=30, stable=2)
+        check("D: recovered after Retry-After cooldown", n >= 16, f"count={n} hits={MockOpenAI.hits}")
+        times = MockOpenAI.hit_times
+        gap = max(times) - min(times) if len(times) >= 2 else 0
+        check("D: backoff honors Retry-After (>=2.5s)", gap >= 2.5, f"gap={gap:.2f}s hits={len(times)}")
+        toggle(page)
+
+        # Scenario E: toggling off mid-request aborts it and leaves clean inactive state
+        MockOpenAI.fail_window = 0
+        MockOpenAI.fail_first = 0
+        MockOpenAI.retry_after = None
+        MockOpenAI.delay = 3
+        MockOpenAI.hits = 0
+        MockOpenAI.hit_times = []
+        page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+        toggle(page)
+        time.sleep(0.6)  # request inflight (mock holding the response)
+        st = floating_state(page)
+        check("E: busy while request inflight", st["active"] and st["busy"], str(st))
+        toggle(page)  # stop → abort inflight
+        time.sleep(0.6)
+        st = floating_state(page)
+        check("E: clean inactive state after abort", not st["active"] and not st["busy"] and count_wrappers(page) == 0, str(st))
+        MockOpenAI.delay = 0
 
         ctx.close()
 
