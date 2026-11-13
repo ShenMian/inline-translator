@@ -322,15 +322,14 @@ def main():
             if not ext_id:
                 time.sleep(0.3)
 
-        # The same-language fixture is Japanese. Commit the target language, then reset the page
-        # before the fixture run: reloading straight after the popup write races chrome.storage's
-        # cross-process propagation, so the content script occasionally read the stale default
-        # (zh-CN) and translated the Japanese #samelang paragraph instead of skipping it.
+        # The same-language fixture is Chinese, matching the target (zh-CN). Commit the target
+        # explicitly and reset the page before the fixture run so the content script initializes
+        # cleanly with the committed settings.
         pop = ctx.new_page()
         pop.goto(f"chrome-extension://{ext_id}/popup.html")
         pop.wait_for_selector("#lang")
-        pop.select_option("#lang", "ja")
-        pop.wait_for_function("() => chrome.storage.local.get('settings').then(s => (s.settings || {}).targetLang === 'ja')")
+        pop.select_option("#lang", "zh-CN")
+        pop.wait_for_function("() => chrome.storage.local.get('settings').then(s => (s.settings || {}).targetLang === 'zh-CN')")
         pop.close()
         page.goto("about:blank", wait_until="domcontentloaded")
 

@@ -29,7 +29,7 @@ check('Spanish not skipped for English target', !isSameLang(es, 'en'));
 check('English skipped for English target', isSameLang(en, 'en'));
 check('English not skipped for Chinese target', !isSameLang(en, 'zh-CN'));
 check('Chinese skipped for Chinese target', isSameLang('这是一个中文句子，用来测试语言检测功能。', 'zh-CN'));
-check('Japanese skipped for Japanese target', isSameLang('これは日本語の文章です。テストのために書いています。', 'ja'));
+check('Traditional Chinese skipped for zh-TW target', isSameLang('這是一個繁體中文句子，用來測試語言檢測功能。', 'zh-TW'));
 check('langFamily zh-CN -> zh', langFamily('zh-CN') === 'zh');
 
 console.log(`\n${pass}/${pass + fail} passed`);

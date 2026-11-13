@@ -151,8 +151,9 @@ def main():
         check("A: no new API hits after reload (cache served)", hits_b == hits_a, f"hits={hits_b} (was {hits_a})")
         toggle(page)  # restore
 
-        # Scenario B: a different target language is a different cache key → must re-fetch
-        write_settings(pop, targetLang="ja")
+        # Scenario B: a different target language is a different cache key → must re-fetch.
+        # zh-TW differs from the zh-CN primary while staying Chinese.
+        write_settings(pop, targetLang="zh-TW")
         page.reload(wait_until="networkidle")
         toggle(page)
         n3 = wait_stable(page, timeout=30, stable=2)
