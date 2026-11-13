@@ -20,6 +20,7 @@ export function createFloatingButton(
   .main{position:relative;width:42px;height:42px;border-radius:50%;}
   .main:hover{transform:scale(1.06);}
   .main.active{background:#2563eb;color:#fff;border-color:transparent;}
+  .main.error{background:#dc2626;color:#fff;border-color:transparent;}
   .main svg{width:22px;height:22px;}
   .main.busy::after{content:'';position:absolute;inset:-5px;border-radius:50%;border:2px solid transparent;border-top-color:#2563eb;animation:ilt-spin .8s linear infinite;pointer-events:none;}
   .main.active.busy::after{border-top-color:#fff;}
@@ -50,9 +51,15 @@ export function createFloatingButton(
     const s = getStatus();
     main.classList.toggle('active', s.active);
     main.classList.toggle('busy', s.active && s.busy);
-    retry.classList.toggle('show', s.active && s.failed > 0);
+    retry.classList.toggle('show', s.active && s.failed > 0 && s.errorRetryable);
     count.textContent = String(s.failed);
     retry.title = s.error ? `Retry ${s.failed} failed — ${s.error}` : `Retry ${s.failed} failed translations`;
+    // Config-type failure (e.g. bad API key): flag the main button instead of offering a futile retry
+    const configErr = s.active && s.failed > 0 && !s.errorRetryable;
+    main.classList.toggle('error', configErr);
+    main.title = configErr
+      ? `Translation failed — check service settings${s.error ? `: ${s.error}` : ''}`
+      : 'Inline Translator: translate / restore (Alt+A)';
   };
   main.addEventListener('click', () => {
     onToggle();

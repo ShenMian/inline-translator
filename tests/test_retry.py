@@ -30,6 +30,7 @@ def check(name, cond, detail=""):
 
 class MockOpenAI(BaseHTTPRequestHandler):
     fail_first = 2
+    fail_status = 500
     hits = 0
 
     def log_message(self, *a):
@@ -40,7 +41,7 @@ class MockOpenAI(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(n))
         if MockOpenAI.hits <= MockOpenAI.fail_first:
-            self.send_response(500)
+            self.send_response(MockOpenAI.fail_status)
             self.end_headers()
             self.wfile.write(b'{"error":"mock failure"}')
             return
@@ -82,6 +83,7 @@ def floating_state(page):
             const m = el.shadowRoot.querySelector('.main');
             const r = el.shadowRoot.querySelector('.retry');
             return { active: m.classList.contains('active'), busy: m.classList.contains('busy'),
+                     error: m.classList.contains('error'),
                      retryShow: r.classList.contains('show'), count: r.querySelector('.count').textContent };
         }""",
     )
@@ -170,6 +172,24 @@ def main():
         time.sleep(0.4)
         st2 = floating_state(page)
         check("B: manual retry re-enqueues (count cleared, busy again)", not st2["retryShow"] and st2["busy"], str(st2))
+        toggle(page)
+
+        # Scenario C: non-retryable 401 → no futile retry button; main button flags a config error
+        MockOpenAI.fail_first = 10**9
+        MockOpenAI.fail_status = 401
+        MockOpenAI.hits = 0
+        page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+        toggle(page)
+        deadline = time.time() + 15
+        st = {}
+        while time.time() < deadline:
+            st = floating_state(page)
+            if int(st.get("count", "0")) > 0 and not st["busy"]:
+                break
+            time.sleep(0.3)
+        check("C: config error flagged on main button", st.get("error") and int(st.get("count", "0")) > 0, str(st))
+        check("C: no futile retry button for 401", not st.get("retryShow"), str(st))
+        check("C: non-retryable settles without backoff", not st.get("busy"), str(st))
         toggle(page)
 
         ctx.close()

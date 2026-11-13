@@ -10,6 +10,7 @@ let host = '';
 let active = false;
 let failed = 0;
 let lastError = '';
+let errorRetryable = true;
 
 async function notifyContent(): Promise<void> {
   if (tabId == null) return;
@@ -29,8 +30,9 @@ function renderToggle(): void {
 function renderFail(): void {
   $('fail-row').hidden = failed === 0;
   const msg = $('fail-msg');
-  msg.textContent = `${failed} failed`;
+  msg.textContent = errorRetryable ? `${failed} failed` : `${failed} failed — ${lastError || 'check service settings'}`;
   msg.title = lastError;
+  $<HTMLButtonElement>('retry').hidden = !errorRetryable;
 }
 
 async function refreshState(): Promise<void> {
@@ -40,10 +42,12 @@ async function refreshState(): Promise<void> {
         active: boolean;
         failed?: number;
         error?: string;
+        errorRetryable?: boolean;
       };
       active = !!s?.active;
       failed = s?.failed ?? 0;
       lastError = s?.error ?? '';
+      errorRetryable = s?.errorRetryable ?? true;
     } catch {
       active = false;
     }

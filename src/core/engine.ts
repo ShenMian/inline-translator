@@ -25,6 +25,8 @@ export interface EngineStatus {
   busy: boolean;
   failed: number;
   error: string;
+  /** False for config-type failures (e.g. 401) where retrying is futile until settings change. */
+  errorRetryable: boolean;
 }
 
 /**
@@ -60,6 +62,7 @@ export class Engine {
   private retryTimers = new Set<ReturnType<typeof setTimeout>>();
   private retryScheduled = 0;
   private lastError = '';
+  private lastErrorRetryable = true;
 
   private dirty = new Set<Element>();
   private dirtyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -137,6 +140,7 @@ export class Engine {
     this.failed.clear();
     this.attempts = new WeakMap();
     this.lastError = '';
+    this.lastErrorRetryable = true;
     this.dirty.clear();
     if (this.dirtyTimer) clearTimeout(this.dirtyTimer);
     this.dirtyTimer = null;
@@ -154,6 +158,7 @@ export class Engine {
       busy: this.queue.length > 0 || this.inflight > 0 || this.retryScheduled > 0,
       failed: this.failed.size,
       error: this.lastError,
+      errorRetryable: this.lastErrorRetryable,
     };
   }
 
@@ -163,6 +168,7 @@ export class Engine {
     const list = Array.from(this.failed);
     this.failed.clear();
     this.lastError = '';
+    this.lastErrorRetryable = true;
     for (const p of list) {
       this.attempts.delete(p);
       if (p.anchor.isConnected && this.nodePara.get(p.anchor) === p) this.enqueue(p);
@@ -332,6 +338,7 @@ export class Engine {
       .catch((e) => {
         const retryable = e instanceof ServiceError ? e.retryable : true;
         this.lastError = e instanceof Error ? e.message : String(e);
+        this.lastErrorRetryable = retryable;
         console.warn('[ilt] translate failed:', e);
         for (const p of batch) this.handleItemFailure(p, retryable);
       })
