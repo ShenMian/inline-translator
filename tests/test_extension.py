@@ -154,6 +154,18 @@ def run_fixture(page):
     )
     check("fixture: table cell translated", page.eval_on_selector("#td1", "el => !!el.querySelector('.ilt-t')"))
     check("fixture: block inside anchor", page.eval_on_selector("#badnest", "el => !!el.querySelector('.ilt-t')"))
+    check(
+        "fixture: inline-block strip translates inside items",
+        page.eval_on_selector("#tabstrip", "el => !el.querySelector(':scope > .ilt-t') && Array.from(el.children).every(li => { const w = li.querySelector('.ilt-t'); return !!w && getComputedStyle(w).display === 'inline'; })"),
+    )
+    check(
+        "fixture: flex crumb translation inline",
+        page.eval_on_selector("#crumb-last", "el => { const w = el.querySelector('.ilt-t'); return !!w && getComputedStyle(w).display === 'inline'; }"),
+    )
+    check(
+        "fixture: metadata value inline beside label",
+        page.eval_on_selector("#meta", "el => { const w = el.querySelector(':scope > .ilt-t'); return !!w && getComputedStyle(w).display === 'inline'; }"),
+    )
     check("fixture: long paragraph translated", page.eval_on_selector("#long", "el => { const w = el.querySelector('.ilt-t'); return !!w && w.textContent.length > 500; }"))
 
     shadow_n = page.eval_on_selector("#shadow-host", "el => el.shadowRoot.querySelectorAll('.ilt-t').length")
