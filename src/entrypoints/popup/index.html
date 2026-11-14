@@ -6,14 +6,6 @@
 </head>
 
 <body class="bg-base-200 p-4 text-[13px] text-base-content">
-  <header class="mb-3 flex items-center gap-2.5">
-    <div class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-[17px] font-bold text-primary-content">IT</div>
-    <div class="min-w-0">
-      <h1 class="text-[15px] font-bold leading-tight">Inline Translator</h1>
-      <p id="host" class="truncate text-[11px] text-base-content/60">…</p>
-    </div>
-  </header>
-
   <button id="toggle" class="btn btn-primary mb-3 w-full">Translate page</button>
 
   <div id="fail-row" class="mb-2.5 flex items-center justify-between gap-2 text-xs text-error" hidden>
@@ -67,7 +59,7 @@
     <span class="ilt-t ilt-block"><span class="ilt-i">阅读使人充实，交谈使人敏捷。</span></span>
   </div>
 
-  <label class="my-2 flex cursor-pointer items-center justify-between gap-2"><span>Auto-translate this site</span><input type="checkbox" id="auto-site" role="switch" class="toggle toggle-sm toggle-primary" /></label>
+  <label class="my-2 flex cursor-pointer items-center justify-between gap-2"><span id="auto-site-label" class="min-w-0 truncate">Auto-translate this site</span><input type="checkbox" id="auto-site" role="switch" class="toggle toggle-sm toggle-primary shrink-0" /></label>
   <label class="my-2 flex cursor-pointer items-center justify-between gap-2"><span>Auto-translate new sites by default</span><input type="checkbox" id="auto-global" role="switch" class="toggle toggle-sm toggle-primary" /></label>
   <label class="my-2 flex cursor-pointer items-center justify-between gap-2"><span>Show floating button</span><input type="checkbox" id="floating" role="switch" class="toggle toggle-sm toggle-primary" /></label>
 
