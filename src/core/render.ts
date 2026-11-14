@@ -13,14 +13,37 @@ const BASE_CSS = `
 .ilt-t img,.ilt-t svg{max-width:100%;vertical-align:middle;}
 `;
 
+// Theme colors/geometry ported from Immersive Translate's inject.css defaults. Text-level
+// themes decorate the inline .ilt-i inner span so they fragment per line on block paragraphs
+// (Immersive's wrapper/inner split); box-level themes dress the .ilt-t wrapper, shrink-wrapped
+// via inline-block. mask/opacity reveal on hover.
 const STYLE_CSS: Record<StyleId, string> = {
-  default: '',
-  underline: `.ilt-t{text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;}`,
-  quote: `.ilt-t.ilt-block{border-left:2px solid currentColor;padding-left:.6em;opacity:.8;}`,
+  none: '',
+  underline: `.ilt-i{border-bottom:1px solid #72ece9;}`,
+  dashed: `.ilt-i{background:linear-gradient(to right,#59c1bd 0%,#59c1bd 50%,transparent 50%,transparent 100%) repeat-x left bottom;background-size:8px 2px;padding-bottom:2px;}`,
+  dotted: `.ilt-i{background-image:linear-gradient(to right,#94a3b8 30%,rgba(255,255,255,0) 0%);background-position:bottom;background-size:5px 1px;background-repeat:repeat-x;padding-bottom:3px;}`,
+  wavy: `.ilt-i{text-decoration:underline;text-decoration-color:#72ece9;text-decoration-style:wavy;}`,
+  highlight: `.ilt-i{background:#ffff00;box-decoration-break:clone;-webkit-box-decoration-break:clone;}`,
+  blockquote: `.ilt-t.ilt-block{display:inline-block;border-left:4px solid #cc3355;padding:4px 0 4px 12px;margin-top:4px;margin-bottom:4px;}`,
+  solidBorder: `.ilt-t.ilt-block{display:inline-block;border:1px solid #94a3b8;padding:6px;margin-top:2px;}.ilt-t.ilt-inline{border:1px solid #94a3b8;padding:2px;}`,
+  paper: `.ilt-t.ilt-block{display:inline-block;margin:8px 0;box-shadow:rgba(0,0,0,.24) 0 3px 8px;padding:16px 32px;}`,
+  background: `.ilt-t.ilt-block{display:inline-block;margin:8px 0;background:rgba(219,175,175,.12);border-radius:4px;padding:12px;}.ilt-t.ilt-inline .ilt-i{background:rgba(219,175,175,.12);padding-left:6px;padding-right:6px;box-decoration-break:clone;-webkit-box-decoration-break:clone;}`,
+  dividingLine: `.ilt-t.ilt-block::before{content:"";display:block;max-width:80px;width:10%;border-top:1px dashed #94a3b8;padding-top:8px;}.ilt-t.ilt-inline::before{content:"";border-left:1px dashed #94a3b8;height:16px;max-height:16px;padding-left:8px;}`,
+  mask: `.ilt-i{display:inline-block;filter:blur(5px);transition:filter .3s ease;border-radius:10px;}.ilt-i:hover{filter:none;}`,
+  opacity: `.ilt-i{display:inline-block;filter:opacity(.1);transition:filter .3s ease;border-radius:10px;}.ilt-i:hover{filter:none;}`,
+  weakening: `.ilt-t{opacity:.618;}`,
+  grey: `.ilt-i{color:#2f4f4f;}`,
+  italic: `.ilt-i{font-style:italic;}`,
+  bold: `.ilt-i{font-weight:bold;}`,
 };
 
+/** Base + theme CSS, shared by page injection and the popup's live preview. */
+export function styleCss(style: StyleId): string {
+  return BASE_CSS + STYLE_CSS[style];
+}
+
 export function injectStyles(root: Document | ShadowRoot, ruleCss: string, style: StyleId): () => void {
-  const css = BASE_CSS + STYLE_CSS[style] + ruleCss;
+  const css = styleCss(style) + ruleCss;
   // Constructed sheets must use the target document's own realm constructor (sharing across documents is rejected)
   const doc = root.nodeType === Node.DOCUMENT_NODE ? (root as Document) : (root as ShadowRoot).ownerDocument;
   const SheetCtor = doc?.defaultView?.CSSStyleSheet;
@@ -97,12 +120,17 @@ export function renderTranslation(p: Paragraph, nodes: Node[], lang: string): vo
   removeWrapper(p);
   const parent = p.anchor.parentNode;
   if (!parent) return;
-  const w = (parent.ownerDocument ?? document).createElement('span');
+  const doc = parent.ownerDocument ?? document;
+  const w = doc.createElement('span');
   w.className = `${WRAPPER_CLASS} notranslate`;
   w.setAttribute('translate', 'no');
   w.setAttribute('lang', lang);
   (w as unknown as Record<string, unknown>)[MARK] = true;
-  w.append(...nodes);
+  // Inline inner span: text-level themes fragment per line even on block paragraphs
+  const inner = doc.createElement('span');
+  inner.className = 'ilt-i';
+  inner.append(...nodes);
+  w.append(inner);
   matchSourceStyle(w, p);
   w.classList.add(isInlineUnit(p) ? 'ilt-inline' : 'ilt-block');
   parent.insertBefore(w, p.anchor.nextSibling);

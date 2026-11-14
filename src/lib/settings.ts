@@ -2,7 +2,14 @@ import { storage } from 'wxt/utils/storage';
 import type { SiteRule } from './rules';
 
 export type ServiceId = 'google' | 'edge' | 'openai';
-export type StyleId = 'default' | 'underline' | 'quote';
+
+/** Translation themes: a deduplicated subset of Immersive Translate's list. */
+export const STYLE_IDS = [
+  'none', 'underline', 'dashed', 'dotted', 'wavy',
+  'highlight', 'blockquote', 'solidBorder', 'paper', 'background',
+  'dividingLine', 'weakening', 'grey', 'italic', 'bold', 'mask', 'opacity',
+] as const;
+export type StyleId = (typeof STYLE_IDS)[number];
 
 export interface Settings {
   targetLang: string;
@@ -24,7 +31,7 @@ export const DEFAULT_SETTINGS: Settings = {
   auto: false,
   autoSites: {},
   openai: { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini' },
-  style: 'default',
+  style: 'none',
   floating: true,
   customRules: [],
 };

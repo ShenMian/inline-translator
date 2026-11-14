@@ -82,7 +82,7 @@ def write_settings(pop, **patch):
     cfg = {
         "targetLang": "zh-CN", "service": "openai", "auto": False, "autoSites": {},
         "openai": {"baseUrl": "http://127.0.0.1:8766/v1", "apiKey": "test", "model": "mock"},
-        "style": "default", "floating": True, "customRules": [],
+        "style": "none", "floating": True, "customRules": [],
     }
     cfg.update(patch)
     pop.evaluate("(c) => chrome.storage.local.set({ settings: c })", cfg)

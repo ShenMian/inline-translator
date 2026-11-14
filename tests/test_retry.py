@@ -120,7 +120,7 @@ def set_openai(pop, ext_id, port):
     cfg = {
         "targetLang": "zh-CN", "service": "openai", "auto": False, "autoSites": {},
         "openai": {"baseUrl": f"http://127.0.0.1:{port}/v1", "apiKey": "test", "model": "mock"},
-        "style": "default", "floating": True, "customRules": [],
+        "style": "none", "floating": True, "customRules": [],
     }
     pop.evaluate("(c) => chrome.storage.local.set({ settings: c })", cfg)
     pop.wait_for_function("() => chrome.storage.local.get('settings').then(s => (s.settings||{}).service === 'openai')")

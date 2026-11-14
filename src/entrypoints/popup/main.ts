@@ -1,8 +1,29 @@
 import { browser } from 'wxt/browser';
-import { loadSettings, saveSettings, type Settings } from '../../lib/settings';
+import { STYLE_IDS, loadSettings, saveSettings, type Settings, type StyleId } from '../../lib/settings';
+import { styleCss } from '../../core/render';
 import type { SiteRule } from '../../lib/rules';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+const STYLE_LABELS: Record<StyleId, string> = {
+  none: 'None',
+  underline: 'Straight line',
+  dashed: 'Dashed lines',
+  dotted: 'Dotted lines',
+  wavy: 'Wavy lines',
+  highlight: 'Highlight',
+  blockquote: 'Quote style',
+  solidBorder: 'Solid border',
+  paper: 'Paper shadow',
+  background: 'Background',
+  dividingLine: 'Dividing line',
+  mask: 'Blur',
+  opacity: 'Transparency',
+  weakening: 'Weaken',
+  grey: 'Black gray',
+  italic: 'Italic',
+  bold: 'Bold',
+};
 
 let settings: Settings;
 let tabId: number | undefined;
@@ -56,10 +77,21 @@ async function refreshState(): Promise<void> {
   renderFail();
 }
 
+// Live preview reuses the exact CSS injected into pages, so what you see is what you get
+let previewSheet: HTMLStyleElement | null = null;
+function renderStylePreview(style: StyleId): void {
+  if (!previewSheet) {
+    previewSheet = document.createElement('style');
+    document.head.append(previewSheet);
+  }
+  previewSheet.textContent = styleCss(style);
+}
+
 function renderForm(): void {
   $<HTMLSelectElement>('lang').value = settings.targetLang;
   $<HTMLSelectElement>('service').value = settings.service;
   $<HTMLSelectElement>('style').value = settings.style;
+  renderStylePreview(settings.style);
   $<HTMLInputElement>('oa-base').value = settings.openai.baseUrl;
   $<HTMLInputElement>('oa-key').value = settings.openai.apiKey;
   $<HTMLInputElement>('oa-model').value = settings.openai.model;
@@ -94,6 +126,25 @@ async function init(): Promise<void> {
     }
   }
   $('host').textContent = host || 'Current page';
+  const styleSel = $<HTMLSelectElement>('style');
+  let hoverGroup: HTMLOptGroupElement | null = null;
+  for (const id of STYLE_IDS) {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = STYLE_LABELS[id];
+    // Blur/transparency only show the translation on hover; group them under a plain-text
+    // header so the behavior is stated at the option without restyling the native select.
+    if (id === 'mask' || id === 'opacity') {
+      if (!hoverGroup) {
+        hoverGroup = document.createElement('optgroup');
+        hoverGroup.label = 'Hover to reveal';
+        styleSel.append(hoverGroup);
+      }
+      hoverGroup.append(opt);
+    } else {
+      styleSel.append(opt);
+    }
+  }
   await refreshState();
   renderForm();
 
@@ -123,7 +174,11 @@ async function init(): Promise<void> {
     $('openai-panel').hidden = service !== 'openai';
     void patch({ service });
   });
-  $<HTMLSelectElement>('style').addEventListener('change', (e) => patch({ style: (e.target as HTMLSelectElement).value as Settings['style'] }));
+  styleSel.addEventListener('change', (e) => {
+    const style = (e.target as HTMLSelectElement).value as StyleId;
+    renderStylePreview(style);
+    void patch({ style });
+  });
 
   const oaHandler = () =>
     patch({
