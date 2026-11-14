@@ -2,8 +2,16 @@ import { isAtomic, isValidText, safeMatches, shouldSkip, styleOf } from './filte
 import { serializeRun } from './serialize';
 import type { Paragraph, Root, WalkContext } from './types';
 
-/** These displays count as inline (contents expands transparently); everything else is block. */
+/** These displays count as inline (contents expands transparently); everything else is block.
+ *  Inline-level *containers* (inline-block/flex/grid/table) are paragraph boundaries, not
+ *  transparent content: a tab strip or badge row must translate inside each item, otherwise
+ *  one wrapper lands as a sibling of the items and breaks the strip's layout. */
 const INLINE_DISPLAYS = new Set([
+  'inline', 'contents', 'ruby', 'inline-list-item',
+]);
+
+/** Inline-level displays for wrapper placement decisions (includes the containers above). */
+export const INLINE_LEVEL_DISPLAYS = new Set([
   'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table',
   'contents', 'ruby', 'inline-list-item',
 ]);

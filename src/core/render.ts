@@ -1,5 +1,6 @@
 import type { StyleId } from '../lib/settings';
 import type { Paragraph } from './types';
+import { INLINE_LEVEL_DISPLAYS } from './walk';
 
 export const WRAPPER_CLASS = 'ilt-t';
 export const MARK = '__ilt__';
@@ -93,6 +94,8 @@ const FLEX_DISPLAYS = new Set([
   'flex', 'inline-flex', 'grid', 'inline-grid',
   'table-row', 'table-row-group', 'table-header-group', 'table-footer-group',
 ]);
+/** Prose containers keep block translations even when laid out as flex/grid items. */
+const PROSE_TAGS = new Set(['P', 'ARTICLE', 'SECTION', 'BLOCKQUOTE', 'TD', 'TH', 'DD', 'DT', 'LI', 'FIGCAPTION']);
 
 /** Walk up across shadow boundaries (closest inside a shadow cannot see light-DOM ancestors). */
 function inChrome(el: Element): boolean {
@@ -107,12 +110,23 @@ function inChrome(el: Element): boolean {
 
 function isInlineUnit(p: Paragraph): boolean {
   const r = p.root;
-  return (
+  if (
     /^H[1-6]$/.test(r.tagName) ||
     r.getAttribute('role') === 'heading' ||
     r.tagName === 'A' ||
-    FLEX_DISPLAYS.has(getComputedStyle(r).display) ||
     inChrome(r)
+  ) {
+    return true;
+  }
+  const cs = getComputedStyle(r);
+  if (FLEX_DISPLAYS.has(cs.display) || INLINE_LEVEL_DISPLAYS.has(cs.display)) return true;
+  // Prose containers get their own line; otherwise a paragraph whose own nodes are all
+  // inline-level (crumbs, metadata values, badge chips) is label-like: the translation
+  // flows inline inside the container instead of stacking a new line. Block siblings
+  // outside the run (e.g. a label H3) do not make the run prose.
+  if (PROSE_TAGS.has(r.tagName)) return false;
+  return p.nodes.every(
+    (n) => n.nodeType === Node.TEXT_NODE || INLINE_LEVEL_DISPLAYS.has(getComputedStyle(n as Element).display),
   );
 }
 
