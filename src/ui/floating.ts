@@ -38,8 +38,10 @@ export function createFloatingButton(
   </button>
   <button class="main" title="Inline Translator: translate / restore (Alt+A)" aria-label="Translate this page">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M4 5h7M7.5 3v2c0 3.5-2 6.5-4.5 8"/>
-      <path d="M5 8c0 2.5 2.5 5 6 6"/>
+      <!-- 文: dot + bar on top, crossing 撇/捺 below; a vertical through the bar reads as 丈 -->
+      <path d="M4 5.5h7.5M7.75 3v2.5"/>
+      <path d="M10 5.5c-.2 2.2-1.6 4.6-6.5 8.5"/>
+      <path d="M4.5 8c1.7 2.7 4.3 5 7 6.5"/>
       <path d="M12.5 20l4-9 4 9M13.8 17h5.4"/>
     </svg>
   </button>
