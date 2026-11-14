@@ -127,7 +127,9 @@ async function init(): Promise<void> {
       host = '';
     }
   }
-  $('host').textContent = host || 'Current page';
+  // The header is gone; the per-site switch label carries the current host instead
+  $('auto-site-label').textContent = host ? `Auto-translate ${host}` : 'Auto-translate this site';
+  $('auto-site-label').title = host;
   const styleSel = $<HTMLSelectElement>('style');
   let hoverGroup: HTMLOptGroupElement | null = null;
   for (const id of STYLE_IDS) {
