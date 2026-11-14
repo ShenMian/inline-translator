@@ -1,8 +1,10 @@
 import { defineConfig } from 'wxt';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   srcDir: 'src',
   manifestVersion: 3,
+  vite: () => ({ plugins: [tailwindcss()] }),
   manifest: ({ browser }) => ({
     name: 'Inline Translator',
     description: 'A lean inline web page translator',
