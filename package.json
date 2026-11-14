@@ -18,6 +18,9 @@
     "dompurify": "^3.4.17"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "daisyui": "^5.8.0",
+    "tailwindcss": "^4.3.5",
     "typescript": "^5.6.0",
     "wxt": "^0.21.5"
   }

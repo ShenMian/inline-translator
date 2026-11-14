@@ -3,28 +3,27 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="stylesheet" href="./style.css" />
 </head>
 
-<body>
-  <header>
-    <div class="logo">IT</div>
-    <div class="title">
-      <h1>Inline Translator</h1>
-      <p id="host">…</p>
+<body class="bg-base-200 p-4 text-[13px] text-base-content">
+  <header class="mb-3 flex items-center gap-2.5">
+    <div class="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-[17px] font-bold text-primary-content">IT</div>
+    <div class="min-w-0">
+      <h1 class="text-[15px] font-bold leading-tight">Inline Translator</h1>
+      <p id="host" class="truncate text-[11px] text-base-content/60">…</p>
     </div>
   </header>
 
-  <button id="toggle" class="primary">Translate page</button>
+  <button id="toggle" class="btn btn-primary mb-3 w-full">Translate page</button>
 
-  <div id="fail-row" hidden>
-    <span id="fail-msg"></span>
-    <button id="retry">Retry</button>
+  <div id="fail-row" class="mb-2.5 flex items-center justify-between gap-2 text-xs text-error" hidden>
+    <span id="fail-msg" class="truncate"></span>
+    <button id="retry" class="btn btn-outline btn-error btn-xs shrink-0">Retry</button>
   </div>
 
-  <div class="row">
-    <label for="lang">Target language</label>
-    <select id="lang">
+  <div class="my-1.5 flex items-center justify-between gap-2">
+    <label for="lang" class="text-base-content/60">Target language</label>
+    <select id="lang" class="select select-sm w-auto max-w-[170px]">
       <option value="zh-CN">Chinese (Simplified)</option>
       <option value="zh-TW">Chinese (Traditional)</option>
       <option value="en">English</option>
@@ -44,45 +43,45 @@
     </select>
   </div>
 
-  <div class="row">
-    <label for="service">Service</label>
-    <select id="service">
+  <div class="my-1.5 flex items-center justify-between gap-2">
+    <label for="service" class="text-base-content/60">Service</label>
+    <select id="service" class="select select-sm w-auto max-w-[170px]">
       <option value="google">Google</option>
       <option value="edge">Edge</option>
       <option value="openai">OpenAI compatible</option>
     </select>
   </div>
 
-  <section id="openai-panel" hidden>
-    <input id="oa-base" type="text" placeholder="Base URL, e.g. https://api.openai.com/v1" spellcheck="false" />
-    <input id="oa-key" type="password" placeholder="API Key" spellcheck="false" />
-    <input id="oa-model" type="text" placeholder="Model, e.g. gpt-4o-mini" spellcheck="false" />
+  <section id="openai-panel" class="my-2 grid gap-1.5" hidden>
+    <input id="oa-base" type="text" class="input input-sm w-full" placeholder="Base URL, e.g. https://api.openai.com/v1" spellcheck="false" />
+    <input id="oa-key" type="password" class="input input-sm w-full" placeholder="API Key" spellcheck="false" />
+    <input id="oa-model" type="text" class="input input-sm w-full" placeholder="Model, e.g. gpt-4o-mini" spellcheck="false" />
   </section>
 
-  <div class="row">
-    <label for="style">Translation style</label>
-    <select id="style"></select>
+  <div class="my-1.5 flex items-center justify-between gap-2">
+    <label for="style" class="text-base-content/60">Translation style</label>
+    <select id="style" class="select select-sm w-auto max-w-[170px]"></select>
   </div>
-  <div id="style-preview" aria-hidden="true">
-    <div class="src">Reading makes a full man.</div>
+  <div id="style-preview" aria-hidden="true" class="mb-2 rounded-box border border-base-300 bg-base-100 px-3 py-2.5 text-xs">
+    <div class="src text-base-content/60">Reading makes a full man.</div>
     <span class="ilt-t ilt-block"><span class="ilt-i">阅读使人充实，交谈使人敏捷。</span></span>
   </div>
 
-  <label class="check"><input type="checkbox" id="auto-site" /> Auto-translate this site</label>
-  <label class="check"><input type="checkbox" id="auto-global" /> Auto-translate new sites by default</label>
-  <label class="check"><input type="checkbox" id="floating" /> Show floating button</label>
+  <label class="my-2 flex cursor-pointer items-center justify-between gap-2"><span>Auto-translate this site</span><input type="checkbox" id="auto-site" role="switch" class="toggle toggle-sm toggle-primary" /></label>
+  <label class="my-2 flex cursor-pointer items-center justify-between gap-2"><span>Auto-translate new sites by default</span><input type="checkbox" id="auto-global" role="switch" class="toggle toggle-sm toggle-primary" /></label>
+  <label class="my-2 flex cursor-pointer items-center justify-between gap-2"><span>Show floating button</span><input type="checkbox" id="floating" role="switch" class="toggle toggle-sm toggle-primary" /></label>
 
-  <details id="rules">
-    <summary>Custom site rules</summary>
-    <textarea id="rules-text" rows="6" spellcheck="false"
+  <details id="rules" class="mt-2.5 border-t border-base-300 pt-2">
+    <summary class="cursor-pointer text-base-content/60">Custom site rules</summary>
+    <textarea id="rules-text" rows="6" spellcheck="false" class="textarea textarea-sm mt-2 w-full font-mono text-[11px]"
       placeholder='[{"matches":["*://example.com/*"],"ignore":[".ads"],"block":[],"inline":[],"keep":[],"css":""}]'></textarea>
-    <div class="rules-actions">
-      <button id="rules-save">Save rules</button>
-      <span id="rules-msg"></span>
+    <div class="mt-1.5 flex items-center gap-2">
+      <button id="rules-save" class="btn btn-outline btn-sm">Save rules</button>
+      <span id="rules-msg" class="text-[11px]"></span>
     </div>
   </details>
 
-  <footer>Alt+A · context menu · floating button</footer>
+  <footer class="mt-3 text-center text-[11px] text-base-content/60"><kbd class="kbd kbd-sm">Alt+A</kbd> · context menu · floating button</footer>
   <script type="module" src="./main.ts"></script>
 </body>
 

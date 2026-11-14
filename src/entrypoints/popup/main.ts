@@ -1,3 +1,4 @@
+import './style.css';
 import { browser } from 'wxt/browser';
 import { STYLE_IDS, loadSettings, saveSettings, type Settings, type StyleId } from '../../lib/settings';
 import { styleCss } from '../../core/render';
@@ -45,7 +46,8 @@ async function notifyContent(): Promise<void> {
 function renderToggle(): void {
   const btn = $<HTMLButtonElement>('toggle');
   btn.textContent = active ? 'Restore original' : 'Translate page';
-  btn.classList.toggle('on', active);
+  btn.classList.toggle('btn-primary', !active);
+  btn.classList.toggle('btn-neutral', active);
 }
 
 function renderFail(): void {
@@ -209,10 +211,12 @@ async function init(): Promise<void> {
       }
       await patch({ customRules: parsed });
       msg.textContent = 'Saved';
-      msg.classList.remove('err');
+      msg.classList.remove('text-error');
+      msg.classList.add('text-success');
     } catch (e) {
       msg.textContent = `Invalid rules: ${e instanceof Error ? e.message : e}`;
-      msg.classList.add('err');
+      msg.classList.remove('text-success');
+      msg.classList.add('text-error');
     }
   });
 }
