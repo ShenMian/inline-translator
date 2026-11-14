@@ -48,6 +48,12 @@ button.primary.on { background: #6b7280; }
 #fail-row button { border: 1px solid #dc2626; background: none; color: #dc2626; border-radius: 6px; padding: 3px 10px; cursor: pointer; font: inherit; flex-shrink: 0; }
 .row { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; }
 .row label { color: var(--muted); }
+#style-preview {
+  margin: 0 0 8px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); font-size: 12px;
+}
+#style-preview .src { color: var(--muted); }
 select, input[type="text"], input[type="password"], textarea {
   background: var(--panel); color: var(--fg);
   border: 1px solid var(--border); border-radius: 6px;
@@ -68,3 +74,7 @@ textarea { width: 100%; max-width: none; margin-top: 8px; resize: vertical; font
 #rules-msg { font-size: 11px; color: var(--muted); }
 #rules-msg.err { color: #dc2626; }
 footer { margin-top: 12px; font-size: 11px; color: var(--muted); text-align: center; }
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }

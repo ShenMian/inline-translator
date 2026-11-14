@@ -6,7 +6,7 @@ A lean inline web page translator for Chrome / Edge / Firefox (MV3).
 
 - **Adaptive engine**: Block/inline decided by computed display; unknown sites work out of the box.
 - **Layout-safe placement**: Labels translate inline right of the original; prose gets its own line.
-- **Style inheritance**: Translations match the original typography.
+- **Style inheritance**: Translations match the original typography, with 17 optional themes (underlines, borders, highlight, quote, blur, transparency, …) and a live popup preview.
 - **Rich text**: Placeholder round-trip, restored and sanitized.
 - **Dynamic content**: Debounced rescans, SPA restarts, Shadow DOM & same-origin iframe piercing.
 - **Efficient**: Viewport-lazy translation, batching, LRU cache.
