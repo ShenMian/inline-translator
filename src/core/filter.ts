@@ -51,9 +51,19 @@ export function shouldSkip(el: Element, ctx: WalkContext): boolean {
 const INVALID_TEXT = [
   /^(https?:\/\/|www\.)\S+$/i,
   /^[\w.+-]+@[\w-]+\.[\w.]+$/,
+  // Whole-unit machine tokens carry no prose; skip them so they aren't sent for translation
+  // (and mangled, e.g. "@user" -> "@用户名"). Mirrors kiss-translator's BUILTIN_SKIP_PATTERNS.
+  /^(?:[a-zA-Z]:\\|\/|\\)(?:[\w\-. ]+\/|[\w\-. ]+\\)*[\w\-. ]*\.?[\w\-. ]*$/, // file path
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/, // UUID
+  /^v?\d+(\.\d+){1,3}$/, // version (v1.2.3)
+  /^({{[^}]+}}|\${[^}]+}|__\w+__|%\w+)$/, // template placeholder
+  /^(?:\.|#)[\w-]+$|^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, // CSS selector / hex color
+  /^@[\w.-]+$/, // @username
+  /^&\w+;$/, // HTML entity
+  /^[^\s\\/:]+?\.[a-zA-Z0-9]{2,5}$/, // filename.ext
 ];
 
-/** Text validity: has letters, not pure digits/symbols, not a URL/email. */
+/** Text validity: has letters, not pure digits/symbols, not a URL/email/machine token. */
 export function isValidText(text: string): boolean {
   if (text.length < 2) return false;
   if (!/\p{L}/u.test(text)) return false;
