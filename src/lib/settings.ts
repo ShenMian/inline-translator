@@ -3,7 +3,7 @@ import type { SiteRule } from './rules';
 
 export type ServiceId = 'google' | 'edge' | 'openai';
 
-/** Translation themes: a deduplicated subset of Immersive Translate's list. */
+/** Translation themes offered in the popup. */
 export const STYLE_IDS = [
   'none', 'underline', 'dashed', 'dotted', 'wavy',
   'highlight', 'blockquote', 'solidBorder', 'paper', 'background',

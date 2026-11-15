@@ -71,7 +71,7 @@ export const BUILTIN_RULES: SiteRule[] = [
   },
   {
     matches: ['*://react.dev/*'],
-    // Tailwind arbitrary-height utility truncates the taller translated line (verified against Immersive Translate)
+    // Tailwind arbitrary-height utility truncates the taller translated line
     css: "[class*='h-[40px]']{height:unset !important;}",
   },
 ];

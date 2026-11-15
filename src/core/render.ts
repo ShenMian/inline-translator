@@ -5,8 +5,8 @@ import { INLINE_LEVEL_DISPLAYS } from './walk';
 export const WRAPPER_CLASS = 'ilt-t';
 export const MARK = '__ilt__';
 
-// Translation typography matches the original: all text properties inherit (like Immersive
-// Translate's default theme); no dimming or weight resets. Decorative themes are opt-in.
+// Translation typography matches the original: all text properties inherit; no dimming or
+// weight resets. Decorative themes are opt-in.
 const BASE_CSS = `
 .ilt-t{display:inline;font:inherit;color:inherit;letter-spacing:inherit;word-spacing:inherit;text-align:inherit;text-transform:inherit;text-indent:inherit;border:0;background:none;float:none;position:static;width:auto;height:auto;margin:0;padding:0;white-space:normal;}
 .ilt-t.ilt-block{display:block;margin-top:.3em;}
@@ -14,10 +14,9 @@ const BASE_CSS = `
 .ilt-t img,.ilt-t svg{max-width:100%;vertical-align:middle;}
 `;
 
-// Theme colors/geometry ported from Immersive Translate's inject.css defaults. Text-level
-// themes decorate the inline .ilt-i inner span so they fragment per line on block paragraphs
-// (Immersive's wrapper/inner split); box-level themes dress the .ilt-t wrapper, shrink-wrapped
-// via inline-block. mask/opacity reveal on hover.
+// Text-level themes decorate the inline .ilt-i inner span so they fragment per line on block
+// paragraphs; box-level themes dress the .ilt-t wrapper, shrink-wrapped via inline-block.
+// mask/opacity reveal on hover.
 const STYLE_CSS: Record<StyleId, string> = {
   none: '',
   underline: `.ilt-i{border-bottom:1px solid #72ece9;}`,
