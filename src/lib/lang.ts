@@ -18,6 +18,8 @@ const STOPWORDS: Record<string, string[]> = {
   es: ['el', 'la', 'los', 'las', 'de', 'que', 'y', 'en', 'un', 'una', 'por', 'con', 'no', 'se', 'su', 'para', 'es', 'al', 'lo', 'como', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'muy', 'sin'],
   pt: ['o', 'a', 'os', 'as', 'de', 'que', 'e', 'do', 'da', 'em', 'um', 'uma', 'para', 'com', 'não', 'se', 'na', 'por', 'mais', 'dos', 'das', 'no', 'ao', 'ele', 'ela', 'você', 'nós', 'mas', 'foi'],
   it: ['il', 'la', 'di', 'che', 'e', 'un', 'una', 'per', 'non', 'con', 'del', 'della', 'le', 'gli', 'si', 'come', 'ma', 'più', 'sono', 'nel', 'nella', 'dei', 'delle', 'questo', 'anche', 'lo', 'ha', 'ci'],
+  vi: ['và', 'của', 'là', 'có', 'không', 'được', 'người', 'trong', 'với', 'các', 'một', 'những', 'này', 'cho', 'từ', 'khi', 'đã', 'sẽ', 'đang', 'rất', 'nhưng', 'nếu', 'thì', 'bạn', 'tôi', 'họ', 'nhiều', 'cũng', 'như', 'để'],
+  id: ['yang', 'dan', 'itu', 'dengan', 'untuk', 'tidak', 'ini', 'dari', 'dalam', 'akan', 'pada', 'juga', 'saya', 'karena', 'bisa', 'ada', 'mereka', 'lebih', 'telah', 'atau', 'anda', 'tersebut', 'sangat', 'adalah', 'bahwa', 'oleh', 'setelah', 'sebagai', 'dapat', 'hanya'],
 };
 
 /** Chinese characters whose simplified and traditional forms differ; counts decide the script. */
