@@ -179,6 +179,36 @@ def main():
         check("C: cache clear forces new API hits", hits_d > hits_c, f"hits={hits_d} (was {hits_c})")
         toggle(page2)
 
+        # Scenario D: two tabs translating different pages must not overwrite each other's cache.
+        # The old full-snapshot write erased every entry the writing tab did not know about.
+        write_settings(pop, targetLang="zh-CN")
+        pop.evaluate("() => chrome.storage.local.remove('cache')")
+        pop.wait_for_function("() => chrome.storage.local.get('cache').then(s => !s.cache)")
+        tab1 = ctx.new_page()
+        tab1.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+        toggle(tab1)
+        n1 = wait_stable(tab1, timeout=30, stable=2)
+        time.sleep(1.0)  # let the persist debounce flush this tab's entries
+        tab2 = ctx.new_page()
+        tab2.goto("http://127.0.0.1:8765/alt.html", wait_until="networkidle")
+        toggle(tab2)
+        n2 = wait_stable(tab2, timeout=30, stable=2)
+        time.sleep(1.0)
+        # Reloading tab 1 fires its pagehide flush; a merge keeps tab 2's entries on disk
+        tab1.reload(wait_until="networkidle")
+        toggle(tab1)
+        wait_stable(tab1, timeout=30, stable=2)
+        hits_d = MockOpenAI.hits
+        sz = cache_size(pop)
+        check("D: second tab translated its own page", n2 >= 3, f"count={n2}")
+        check("D: both tabs' entries coexist on disk", sz >= n1 + n2 - 1, f"entries={sz} (tab1={n1} tab2={n2})")
+        tab2.reload(wait_until="networkidle")
+        toggle(tab2)
+        n5 = wait_stable(tab2, timeout=30, stable=2)
+        check("D: second tab still served from cache after tab 1 wrote", MockOpenAI.hits == hits_d, f"hits={MockOpenAI.hits} was {hits_d}")
+        check("D: second tab restored its translation from cache", n5 >= 3, f"count={n5}")
+        toggle(tab2)
+
         ctx.close()
 
     failed = [n for n, ok in RESULTS if not ok]
