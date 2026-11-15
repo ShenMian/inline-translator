@@ -18,6 +18,8 @@ const MAX_INFLIGHT = 2;
 const RESCAN_DEBOUNCE = 150;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY = 1200;
+/** Cap DOM work per frame so a cache-warm rescan never blocks input for long. */
+const RENDER_CHUNK = 80;
 
 /** Live engine state for the floating button / popup: busy drives the spinner, failed the retry affordance. */
 export interface EngineStatus {
@@ -49,7 +51,7 @@ export class Engine {
   private wrappers = new Set<Paragraph>();
   private subRoots = new Set<Node>();
   private frameListeners = new WeakSet<HTMLIFrameElement>();
-  private styleDisposers: (() => void)[] = [];
+  private styleRoots = new Map<Document | ShadowRoot, () => void>();
 
   private queue: Paragraph[] = [];
   private queueChars = 0;
@@ -69,6 +71,10 @@ export class Engine {
   private dirtyTimer: ReturnType<typeof setTimeout> | null = null;
   private lastUrl = location.href;
   private destroyed = false;
+
+  /** Pending DOM writes, coalesced into one animation frame (map dedupes repeat results). */
+  private renderQueue = new Map<Paragraph, string>();
+  private frameCancel: (() => void) | null = null;
 
   constructor(settings: Settings) {
     this.settings = settings;
@@ -99,7 +105,7 @@ export class Engine {
   start(): void {
     if (this.active || this.destroyed || !document.body) return;
     this.active = true;
-    this.styleDisposers.push(injectStyles(document, this.rule.css, this.settings.style));
+    this.applyStyles(document);
     this.io = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
@@ -129,8 +135,7 @@ export class Engine {
     this.ioTargets.clear();
     this.watcher.disconnect();
     this.subRoots.clear();
-    this.styleDisposers.forEach((d) => d());
-    this.styleDisposers = [];
+    this.disposeStyles();
     this.queue = [];
     this.queueChars = 0;
     if (this.flushTimer) clearTimeout(this.flushTimer);
@@ -147,6 +152,9 @@ export class Engine {
     this.dirty.clear();
     if (this.dirtyTimer) clearTimeout(this.dirtyTimer);
     this.dirtyTimer = null;
+    this.frameCancel?.();
+    this.frameCancel = null;
+    this.renderQueue.clear();
     this.emitStatus();
   }
 
@@ -184,8 +192,11 @@ export class Engine {
   }
 
   updateSettings(s: Settings): void {
-    const needRetranslate =
-      this.active && (s.targetLang !== this.settings.targetLang || s.service !== this.settings.service || s.style !== this.settings.style);
+    const prev = this.settings;
+    // Style is pure CSS, and rule edits change how the page is scanned; neither needs new requests.
+    const retranslate = this.active && (s.targetLang !== prev.targetLang || s.service !== prev.service);
+    const rulesChanged = this.active && JSON.stringify(s.customRules) !== JSON.stringify(prev.customRules);
+    const styleChanged = this.active && s.style !== prev.style;
     this.settings = s;
     this.service = getService(s);
     this.rule = matchRules(location.href, [...BUILTIN_RULES, ...s.customRules]);
@@ -196,10 +207,24 @@ export class Engine {
       inlineSel: joinSelectors(this.rule.inline),
       keepSel: joinSelectors(this.rule.keep),
     };
-    if (needRetranslate) {
+    if (!this.active) return;
+    if (retranslate || rulesChanged) {
       this.stop();
       this.start();
+    } else if (styleChanged) {
+      // Swap stylesheets in place; the DOM and the cache stay untouched
+      for (const root of Array.from(this.styleRoots.keys())) this.applyStyles(root);
     }
+  }
+
+  private applyStyles(root: Document | ShadowRoot): void {
+    this.styleRoots.get(root)?.();
+    this.styleRoots.set(root, injectStyles(root, this.rule.css, this.settings.style));
+  }
+
+  private disposeStyles(): void {
+    for (const dispose of this.styleRoots.values()) dispose();
+    this.styleRoots.clear();
   }
 
   private restart(): void {
@@ -253,7 +278,7 @@ export class Engine {
       const sr = el.shadowRoot;
       if (sr && !this.subRoots.has(sr)) {
         this.subRoots.add(sr);
-        this.styleDisposers.push(injectStyles(sr, this.rule.css, this.settings.style));
+        this.applyStyles(sr);
         this.scanRoot(sr);
         this.watcher.observe(sr);
       }
@@ -265,7 +290,7 @@ export class Engine {
             const doc = frame.contentDocument;
             if (doc?.body && !this.subRoots.has(doc.body)) {
               this.subRoots.add(doc.body);
-              this.styleDisposers.push(injectStyles(doc, this.rule.css, this.settings.style));
+              this.applyStyles(doc);
               // Cross-document elements make IO unreliable → enqueue directly
               this.scanRoot(doc.body, true);
               this.watcher.observe(doc.body);
@@ -291,7 +316,7 @@ export class Engine {
     const key = cacheKey(this.service.id, this.settings.targetLang, p.rich);
     const cached = cacheGet(key);
     if (cached !== undefined) {
-      this.applyResult(p, cached);
+      this.scheduleRender(p, cached);
       return;
     }
     this.queue.push(p);
@@ -337,10 +362,14 @@ export class Engine {
             return;
           }
           cacheSet(cacheKey(serviceId, to, p.rich), tr);
-          this.applyResult(p, tr);
+          this.scheduleRender(p, tr);
         });
+        // A short response leaves the tail unaddressed; retry those units instead of dropping them
+        for (let i = results.length; i < batch.length; i++) this.handleItemFailure(batch[i]!, true);
       })
       .catch((e) => {
+        // Aborts come from stop(): no user-visible failure to report
+        if (ctrl.signal.aborted) return;
         const retryable = e instanceof ServiceError ? e.retryable : true;
         const retryAfterMs = e instanceof ServiceError ? e.retryAfterMs : undefined;
         this.lastError = e instanceof Error ? e.message : String(e);
@@ -385,6 +414,75 @@ export class Engine {
     this.wrappers.add(p);
     this.failed.delete(p);
     this.attempts.delete(p);
+  }
+
+  /**
+   * Coalesce DOM writes into animation frames. Inserting many translations one by one forces a
+   * layout per unit and makes the page crawl; batching also lets us measure how far the content
+   * moved and correct the scroll position once per frame.
+   */
+  private scheduleRender(p: Paragraph, tr: string): void {
+    this.renderQueue.set(p, tr);
+    this.scheduleRenderFlush();
+  }
+
+  private flushRenders(): void {
+    if (!this.active) {
+      this.renderQueue.clear();
+      return;
+    }
+    const chunk: [Paragraph, string][] = [];
+    for (const entry of this.renderQueue) {
+      chunk.push(entry);
+      if (chunk.length >= RENDER_CHUNK) break;
+    }
+    for (const [p] of chunk) this.renderQueue.delete(p);
+
+    const anchor = this.pickScrollAnchor(chunk);
+    // Read before the writes: restoring + inserting invalidates layout anyway
+    const before = anchor ? anchor.el.getBoundingClientRect().top : 0;
+    for (const [p, tr] of chunk) this.applyResult(p, tr);
+    if (anchor) {
+      const delta = anchor.el.getBoundingClientRect().top - before;
+      // Translations inserted above the viewport grow the page and push the reader down; scroll
+      // back by the same amount. A huge delta means unrelated layout churn, so leave it alone.
+      if (Math.abs(delta) > 1 && Math.abs(delta) < window.innerHeight * 2) window.scrollBy(0, delta);
+    }
+    if (this.renderQueue.size) this.scheduleRenderFlush();
+  }
+
+  private scheduleRenderFlush(): void {
+    if (this.frameCancel) return;
+    const run = () => {
+      this.frameCancel = null;
+      this.flushRenders();
+    };
+    // rAF is paused in background tabs; fall back to a timer so popup-triggered runs still render
+    if (document.hidden) {
+      const t = setTimeout(run, 16);
+      this.frameCancel = () => clearTimeout(t);
+    } else {
+      const id = requestAnimationFrame(run);
+      this.frameCancel = () => cancelAnimationFrame(id);
+    }
+  }
+
+  /** First unit at/above the viewport top: the element whose position tells us how far content shifted. */
+  private pickScrollAnchor(chunk: [Paragraph, string][]): { el: Element; top: number } | null {
+    if (window.scrollY <= 0) return null;
+    let best: Element | null = null;
+    let bestTop = Infinity;
+    for (const [p] of chunk) {
+      const el = p.anchor.nodeType === Node.ELEMENT_NODE ? (p.anchor as Element) : p.anchor.parentElement;
+      // Iframe documents scroll separately; their rects are not in the top viewport's coordinates
+      if (!el || el.ownerDocument !== document || !el.isConnected) continue;
+      const top = el.getBoundingClientRect().top;
+      if (top >= 0 && top < bestTop) {
+        best = el;
+        bestTop = top;
+      }
+    }
+    return best ? { el: best, top: bestTop } : null;
   }
 
   // ---------- dynamic rescan ----------

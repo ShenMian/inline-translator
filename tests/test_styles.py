@@ -93,10 +93,13 @@ def check(name, cond, detail=""):
 
 
 class MockOpenAI(BaseHTTPRequestHandler):
+    hits = 0
+
     def log_message(self, *a):
         pass
 
     def do_POST(self):
+        MockOpenAI.hits += 1
         n = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(n))
         texts = json.loads(body["messages"][1]["content"])
@@ -220,6 +223,31 @@ def main():
                 check(f"style {style}: hover reveals", revealed and filt == "none", filt)
                 page.mouse.move(0, 0)
             page.screenshot(path=str(SHOTS / f"style-{style}.png"))
+
+        # --- live theme switch: restyle in place, no teardown, no re-fetch ---
+        seed("none")
+        page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+        toggle(page)
+        n_before = wait_stable(page)
+        hits_before = MockOpenAI.hits
+        pop.select_option("#style", "underline")
+        pop.wait_for_function("() => chrome.storage.local.get('settings').then(s => (s.settings||{}).style === 'underline')")
+        # The popup tab is the active tab in tests, so deliver the change notification explicitly
+        pop.evaluate(
+            "() => chrome.tabs.query({url: 'http://127.0.0.1:8765/*'}).then(ts => chrome.tabs.sendMessage(ts[0].id, {type: 'settings-changed'}))"
+        )
+        try:
+            page.wait_for_function(
+                "() => { const i = document.querySelector('#p1 .ilt-i'); return !!i && getComputedStyle(i).borderBottomStyle === 'solid'; }",
+                timeout=5000,
+            )
+            restyled = True
+        except Exception:
+            restyled = False
+        check("live restyle applies to the translated page", restyled)
+        n_after = count_wrappers(page)
+        check("live restyle keeps the same wrappers (no teardown)", n_after == n_before, f"{n_after} vs {n_before}")
+        check("live restyle does not re-fetch translations", MockOpenAI.hits == hits_before, f"hits={MockOpenAI.hits} was {hits_before}")
 
         # --- popup option list + live preview ---
         def wait_value(v):

@@ -9,7 +9,7 @@ A lean inline web page translator for Chrome / Edge / Firefox (MV3).
 - **Style inheritance**: Translations match the original typography, with 17 optional themes (underlines, borders, highlight, quote, blur, transparency, …) and a live popup preview.
 - **Rich text**: Placeholder round-trip, restored and sanitized.
 - **Dynamic content**: Debounced rescans, SPA restarts, Shadow DOM & same-origin iframe piercing.
-- **Efficient**: Viewport-lazy translation, batching, LRU cache.
+- **Efficient**: Viewport-lazy translation, frame-batched rendering that keeps the scroll position, batching, persistent LRU cache.
 - **Services**: Google / Edge built-in endpoints or any OpenAI-compatible API.
 - **Controls**: Curated + custom site rules, floating button, Alt+A, context menu, popup, per-site auto-translate memory.
 
