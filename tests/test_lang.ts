@@ -30,7 +30,11 @@ check('English skipped for English target', isSameLang(en, 'en'));
 check('English not skipped for Chinese target', !isSameLang(en, 'zh-CN'));
 check('Chinese skipped for Chinese target', isSameLang('这是一个中文句子，用来测试语言检测功能。', 'zh-CN'));
 check('Traditional Chinese skipped for zh-TW target', isSameLang('這是一個繁體中文句子，用來測試語言檢測功能。', 'zh-TW'));
-check('langFamily zh-CN -> zh', langFamily('zh-CN') === 'zh');
+check('Simplified not skipped for zh-TW target', !isSameLang('这是一个简体中文句子，用来测试语言检测功能。', 'zh-TW'));
+check('Traditional not skipped for zh-CN target', !isSameLang('這是一個繁體中文句子，用來測試語言檢測功能。', 'zh-CN'));
+check('langFamily zh-CN -> zh-Hans', langFamily('zh-CN') === 'zh-Hans', langFamily('zh-CN'));
+check('langFamily zh-TW -> zh-Hant', langFamily('zh-TW') === 'zh-Hant', langFamily('zh-TW'));
+check('langFamily zh -> zh', langFamily('zh') === 'zh', langFamily('zh'));
 
 console.log(`\n${pass}/${pass + fail} passed`);
 if (fail) throw new Error(`${fail} language detection checks failed`);

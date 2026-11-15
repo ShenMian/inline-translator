@@ -20,6 +20,24 @@ const STOPWORDS: Record<string, string[]> = {
   it: ['il', 'la', 'di', 'che', 'e', 'un', 'una', 'per', 'non', 'con', 'del', 'della', 'le', 'gli', 'si', 'come', 'ma', 'più', 'sono', 'nel', 'nella', 'dei', 'delle', 'questo', 'anche', 'lo', 'ha', 'ci'],
 };
 
+/** Chinese characters whose simplified and traditional forms differ; counts decide the script. */
+const ZH_PAIRS: [string, string][] = [
+  ['这', '這'], ['个', '個'], ['们', '們'], ['来', '來'], ['说', '說'], ['时', '時'],
+  ['会', '會'], ['对', '對'], ['开', '開'], ['关', '關'], ['国', '國'], ['学', '學'],
+  ['语', '語'], ['湾', '灣'], ['么', '麼'], ['样', '樣'], ['发', '發'], ['现', '現'],
+  ['为', '為'], ['与', '與'], ['从', '從'], ['进', '進'], ['过', '過'], ['还', '還'],
+  ['没', '沒'], ['请', '請'], ['电', '電'], ['话', '話'], ['见', '見'], ['觉', '覺'],
+  ['让', '讓'], ['认', '認'], ['识', '識'], ['听', '聽'], ['问', '問'], ['长', '長'],
+  ['车', '車'], ['门', '門'], ['马', '馬'], ['鸟', '鳥'], ['鱼', '魚'], ['龙', '龍'],
+  ['龟', '龜'], ['头', '頭'], ['页', '頁'], ['风', '風'], ['飞', '飛'], ['齿', '齒'],
+  ['贝', '貝'], ['书', '書'], ['万', '萬'], ['专', '專'], ['产', '產'], ['业', '業'],
+  ['东', '東'], ['丝', '絲'], ['两', '兩'], ['严', '嚴'], ['丽', '麗'], ['举', '舉'],
+  ['义', '義'], ['乌', '烏'], ['乐', '樂'], ['习', '習'], ['乡', '鄉'], ['买', '買'],
+  ['乱', '亂'], ['争', '爭'],
+];
+const HANS_ONLY = new Set(ZH_PAIRS.map(([hans]) => hans));
+const HANT_ONLY = new Set(ZH_PAIRS.map(([, hant]) => hant));
+
 /** Distinguish Latin languages by stopword share; 'und' (undetermined) when no clear winner, so a
  *  French/German/… page is never mistaken for English and wrongly skipped. */
 function detectLatin(text: string): string {
@@ -41,13 +59,26 @@ function detectLatin(text: string): string {
   return tie ? 'und' : best;
 }
 
+/** 'zh-Hans' / 'zh-Hant' when the text carries script-specific characters, plain 'zh' when ambiguous. */
+function detectZhScript(text: string): string {
+  let hans = 0;
+  let hant = 0;
+  for (const ch of text) {
+    if (HANS_ONLY.has(ch)) hans++;
+    else if (HANT_ONLY.has(ch)) hant++;
+  }
+  if (hans > hant) return 'zh-Hans';
+  if (hant > hans) return 'zh-Hant';
+  return 'zh';
+}
+
 export function detectLang(text: string): string {
   const len = text.length;
   if (!len) return 'und';
   const ratio = (re: RegExp) => (text.match(re)?.length ?? 0) / len;
   if (ratio(RE.kana) > 0.05) return 'ja';
   if (ratio(RE.hangul) > 0.2) return 'ko';
-  if (ratio(RE.cjk) > 0.2) return 'zh';
+  if (ratio(RE.cjk) > 0.2) return detectZhScript(text);
   if (ratio(RE.cyrillic) > 0.3) return 'ru';
   if (ratio(RE.arabic) > 0.3) return 'ar';
   if (ratio(RE.hebrew) > 0.3) return 'he';
@@ -56,15 +87,34 @@ export function detectLang(text: string): string {
   return detectLatin(text);
 }
 
+/** Normalize a language tag for skip comparisons: Chinese keeps its script (Hans/Hant), others drop
+ *  the region so en-US/en-GB stay comparable. */
 export function langFamily(code: string): string {
   const c = code.toLowerCase();
-  if (c.startsWith('zh') || c.startsWith('ch')) return 'zh';
+  if (c.startsWith('zh') || c.startsWith('ch')) {
+    const parts = c.split('-');
+    if (parts.includes('hant') || parts.includes('tw') || parts.includes('hk') || parts.includes('mo')) return 'zh-Hant';
+    if (parts.includes('hans') || parts.includes('cn') || parts.includes('sg') || parts.includes('my')) return 'zh-Hans';
+    return 'zh';
+  }
   if (c.startsWith('jp')) return 'ja';
   return c.split('-')[0] ?? c;
 }
 
+function isChinese(lang: string): boolean {
+  return lang === 'zh' || lang === 'zh-Hans' || lang === 'zh-Hant';
+}
+
+/** Same language as the target? Chinese script must match too: a zh-TW target still translates
+ *  Simplified source instead of silently skipping it. Ambiguous Chinese counts as the target script. */
 export function isSameLang(text: string, target: string): boolean {
-  return detectLang(text) === langFamily(target);
+  const detected = detectLang(text);
+  const family = langFamily(target);
+  if (isChinese(family)) {
+    if (!isChinese(detected)) return false;
+    return family === 'zh' || detected === 'zh' || detected === family;
+  }
+  return detected === family;
 }
 
 /** Primary page language (html[lang] first), for the whole-page same-language check before auto-translate. */
