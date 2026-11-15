@@ -37,6 +37,8 @@ class MockOpenAI(BaseHTTPRequestHandler):
     delay = 0.0
     hits = 0
     hit_times = []
+    # Any batch containing this marker comes back one item short, so the response shape is wrong
+    short_on = None
 
     def log_message(self, *a):
         pass
@@ -65,6 +67,8 @@ class MockOpenAI(BaseHTTPRequestHandler):
                 return
             texts = json.loads(body["messages"][1]["content"])
             out = ["译文 " + t for t in texts]
+            if MockOpenAI.short_on and any(MockOpenAI.short_on in t for t in texts):
+                out = out[:-1]
             data = json.dumps(
                 {"choices": [{"message": {"content": json.dumps(out, ensure_ascii=False)}}]},
                 ensure_ascii=False,
@@ -262,6 +266,46 @@ def main():
         st = floating_state(page)
         check("E: clean inactive state after abort", not st["active"] and not st["busy"] and count_wrappers(page) == 0, str(st))
         MockOpenAI.delay = 0
+
+        # Scenario F: a unit that always breaks the batch shape must not take its siblings down.
+        # The service splits malformed batches, so the healthy units still get translated.
+        MockOpenAI.fail_window = 0
+        MockOpenAI.fail_first = 0
+        MockOpenAI.short_on = "POISON"
+        MockOpenAI.hits = 0
+        page = fresh_page(ctx, pop)
+        toggle(page)
+        wait_stable(page, timeout=30, stable=2)
+        page.evaluate(
+            """() => {
+                const mk = (id, text) => {
+                    const p = document.createElement('p');
+                    p.id = id;
+                    p.textContent = text;
+                    document.body.append(p);
+                };
+                mk('fresh-one', 'A dynamically inserted healthy paragraph number one.');
+                mk('fresh-poison', 'POISON marker makes whatever batch it lands in one item short.');
+                mk('fresh-two', 'A dynamically inserted healthy paragraph number two.');
+                // Below-the-fold appends only translate once the lazy observer can see them
+                document.getElementById('fresh-two').scrollIntoView();
+            }"""
+        )
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            ok = page.evaluate(
+                "() => ['fresh-one', 'fresh-two'].every(id => !!document.querySelector('#' + id + ' .ilt-t'))"
+            )
+            if ok:
+                break
+            time.sleep(0.4)
+        clean = page.evaluate("() => ['fresh-one', 'fresh-two'].every(id => !!document.querySelector('#' + id + ' .ilt-t'))")
+        poisoned = page.evaluate("() => !!document.querySelector('#fresh-poison .ilt-t')")
+        check("F: healthy units translated despite a bad batch shape", clean)
+        check("F: only the offending unit stays untranslated", not poisoned)
+        check("F: main page still fully translated", count_wrappers(page) >= 16, f"count={count_wrappers(page)} hits={MockOpenAI.hits}")
+        MockOpenAI.short_on = None
+        toggle(page)
 
         ctx.close()
 

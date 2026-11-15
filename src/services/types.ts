@@ -17,6 +17,14 @@ export class ServiceError extends Error {
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** A response whose shape cannot be trusted (wrong item count). Retryable, and worth splitting the
+ *  batch over: the rest of the units usually come back fine on their own. */
+export class ShapeError extends ServiceError {
+  constructor(message: string) {
+    super(message, true);
+  }
+}
+
 /** Transient failures worth retrying: rate limit (429), server error (5xx), or network failure (0). */
 export function retryableStatus(status: number): boolean {
   return status === 429 || status >= 500 || status === 0;

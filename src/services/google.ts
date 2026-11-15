@@ -1,5 +1,5 @@
 import { proxyFetch } from '../lib/messaging';
-import { parseRetryAfter, ServiceError, sleep, type TranslateService } from './types';
+import { parseRetryAfter, retryableStatus, ServiceError, sleep, type TranslateService } from './types';
 
 const ENDPOINT = 'https://translate.googleapis.com/translate_a/single';
 const CONCURRENCY = 6;
@@ -43,6 +43,7 @@ async function one(text: string, to: string, signal?: AbortSignal): Promise<stri
       q: chunk,
     });
     let lastErr = '';
+    let lastStatus = 0;
     let lastRetryAfter: string | null | undefined;
     for (let attempt = 0; attempt < 2; attempt++) {
       const res = await proxyFetch({ url: `${ENDPOINT}?${params}`, method: 'GET' }, signal);
@@ -63,6 +64,7 @@ async function one(text: string, to: string, signal?: AbortSignal): Promise<stri
         break;
       }
       lastErr = `Google ${res.status}: ${(res.body || res.error || '').slice(0, 200)}`;
+      lastStatus = res.status;
       lastRetryAfter = res.retryAfter;
       if ((res.status === 429 || res.status >= 500) && attempt === 0) {
         await sleep(800);
@@ -70,7 +72,8 @@ async function one(text: string, to: string, signal?: AbortSignal): Promise<stri
       }
       break;
     }
-    if (lastErr) throw new ServiceError(lastErr, true, parseRetryAfter(lastRetryAfter));
+    // Status 0 stands for the empty-200 case, which is throttling and worth retrying
+    if (lastErr) throw new ServiceError(lastErr, retryableStatus(lastStatus), parseRetryAfter(lastRetryAfter));
   }
   // CJK/Thai run sentences together without spaces; joining with ' ' would inject stray spaces
   const sep = /^(zh|ja|ko|th)/i.test(to) ? '' : ' ';
@@ -81,6 +84,8 @@ export const google: TranslateService = {
   id: 'google',
   async translate(texts, to, signal) {
     const out = new Array<string>(texts.length).fill('');
+    let firstError: ServiceError | null = null;
+    let failures = 0;
     let i = 0;
     const workers = Array.from({ length: Math.min(CONCURRENCY, texts.length) }, async () => {
       while (i < texts.length) {
@@ -88,12 +93,18 @@ export const google: TranslateService = {
         // Isolate per-item failures so one bad unit doesn't drop its siblings; the engine retries empties
         try {
           out[idx] = await one(texts[idx]!, to, signal);
-        } catch {
+        } catch (e) {
+          // stop() aborts in-flight work: stay silent instead of reporting a batch failure
+          if (signal?.aborted) return;
+          failures++;
+          if (!firstError) firstError = e instanceof ServiceError ? e : new ServiceError(String(e), true);
           out[idx] = '';
         }
       }
     });
     await Promise.all(workers);
+    // Nothing came back: surface the real cause so config errors stop being retried forever
+    if (failures === texts.length && firstError) throw firstError;
     return out;
   },
 };
