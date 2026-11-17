@@ -11,7 +11,7 @@ const BASE_CSS = `
 .ilt-t{display:inline;font:inherit;color:inherit;letter-spacing:inherit;word-spacing:inherit;text-align:inherit;text-transform:inherit;text-indent:inherit;border:0;background:none;float:none;position:static;width:auto;height:auto;margin:0;padding:0;white-space:inherit;overflow-wrap:break-word;}
 .ilt-t.ilt-block{display:block;margin-top:.3em;}
 .ilt-t.ilt-inline{margin-left:.45em;}
-.ilt-t img,.ilt-t svg{max-width:100%;vertical-align:middle;}
+.ilt-t img,.ilt-t svg{display:inline;max-width:100%;vertical-align:middle;}
 [data-ilt-unclamp]{-webkit-line-clamp:unset!important;line-clamp:unset!important;max-height:none!important;}
 `;
 

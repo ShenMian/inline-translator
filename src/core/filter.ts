@@ -22,16 +22,19 @@ export function isInsideOurs(node: Node): boolean {
   return false;
 }
 
-/** Never entered: invisible, lazy, ruby-reading, code-block and similar regions. */
+/** Never entered: invisible, lazy, decorative-vector, ruby-reading, code-block and similar regions.
+ *  SVG is excluded (matching Immersive Translate & KISS) rather than cloned as an atomic token:
+ *  trailing UI chevrons/icons (`<a>About Us <svg/></a>`) stay after the translation instead of
+ *  getting duplicated inside `.ilt-t` (where Tailwind's `svg { display: block }` stacks them). */
 const DROP_TAGS = new Set([
   'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'HEAD', 'TITLE', 'META', 'LINK', 'BASE',
-  'SLOT', 'IFRAME', 'FRAME', 'FRAMESET', 'OBJECT', 'PRE', 'RP', 'RT', 'DATALIST', 'PARAM', 'TRACK',
+  'SLOT', 'IFRAME', 'FRAME', 'FRAMESET', 'OBJECT', 'PRE', 'SVG', 'RP', 'RT', 'DATALIST', 'PARAM', 'TRACK',
 ]);
 
 /** Kept verbatim: atomic placeholder inside a paragraph, never split for translation. */
 export const ATOMIC_TAGS = new Set([
   'CODE', 'KBD', 'SAMP', 'VAR', 'TT', 'SUB', 'SUP',
-  'IMG', 'SVG', 'MATH', 'PICTURE', 'CANVAS', 'VIDEO', 'AUDIO', 'EMBED',
+  'IMG', 'MATH', 'PICTURE', 'CANVAS', 'VIDEO', 'AUDIO', 'EMBED',
   'INPUT', 'BUTTON', 'SELECT', 'TEXTAREA', 'MAP', 'AREA',
 ]);
 

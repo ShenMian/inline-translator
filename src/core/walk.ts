@@ -174,8 +174,9 @@ export function extractParagraphs(root: Root, ctx: WalkContext): Paragraph[] {
         return;
       }
       if (shouldSkip(child, ctx)) {
-        // Visible skipped blocks (<pre>, block .notranslate, ignored banners) still break surrounding prose
-        if (styleOf(child, ctx).display !== 'none' && isBlock(child, ctx)) flush();
+        // Visible skipped blocks (<pre>, block .notranslate, ignored banners) still break surrounding prose;
+        // inline graphics like <svg> (even when Tailwind sets `svg { display: block }`) do not split sentences.
+        if (childTag !== 'SVG' && styleOf(child, ctx).display !== 'none' && isBlock(child, ctx)) flush();
         return;
       }
       const display = styleOf(child, ctx).display;

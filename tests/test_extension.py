@@ -192,10 +192,23 @@ def run_fixture(page):
         ),
     )
     check(
+        "fixture: nav dropdown places translation before trailing svg chevron without cloning svg",
+        page.eval_on_selector(
+            "#nav-chevron",
+            """el => {
+                const w = el.querySelector(':scope > .ilt-t');
+                const svg = el.querySelector('#chevron-svg');
+                if (!w || !svg) return false;
+                const wr = w.getBoundingClientRect(), sr = svg.getBoundingClientRect();
+                return w.nextElementSibling === svg && !w.querySelector('svg') && wr.left < sr.left && Math.abs(wr.top - sr.top) < 12;
+            }""",
+        ),
+    )
+    check(
         "fixture: inline-flex link inside prose stays single paragraph",
         page.eval_on_selector(
             "#inline-flex-prose",
-            "el => el.querySelectorAll('.ilt-t').length === 1 && !!el.querySelector('.ilt-t a[href=\"https://example.com/guide\"] svg')",
+            "el => el.querySelectorAll('.ilt-t').length === 1 && !!el.querySelector('.ilt-t a[href=\"https://example.com/guide\"]') && !el.querySelector('.ilt-t svg')",
         ),
     )
     check(
