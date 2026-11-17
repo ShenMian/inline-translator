@@ -22,7 +22,8 @@ const LANG_NAMES: Record<string, string> = {
 };
 
 function parseArray(content: string, expected: number): string[] {
-  let s = content.trim();
+  // Strip <think>...</think> blocks emitted by reasoning models (DeepSeek-R1, Qwen3, QwQ, Ollama)
+  let s = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fence) s = fence[1]!.trim();
   const start = s.indexOf('[');
@@ -100,7 +101,7 @@ export function createOpenAI(cfg: Settings['openai']): TranslateService {
   }
 
   return {
-    id: 'openai',
+    id: `openai:${cfg.baseUrl.replace(/\/+$/, '')}:${cfg.model}`,
     async translate(texts, to, signal) {
       if (!cfg.apiKey) throw new ServiceError('OpenAI: API key not configured');
       return run(texts, LANG_NAMES[to] ?? to, signal, 0);

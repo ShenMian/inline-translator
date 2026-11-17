@@ -1,19 +1,8 @@
 import type { EngineStatus } from '../core/engine';
 
-/** Floating toggle at bottom right: Shadow DOM isolates styles from the host page.
- *  A spinner ring marks translation in progress; a separate retry pill appears when units fail. */
-export function createFloatingButton(
-  onToggle: () => void,
-  onRetry: () => void,
-  getStatus: () => EngineStatus,
-): { host: HTMLElement; sync: () => void } {
-  const host = document.createElement('div');
-  host.setAttribute('data-ilt-ui', '');
-  host.setAttribute('translate', 'no');
-  host.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483647;';
-  const shadow = host.attachShadow({ mode: 'open' });
-  shadow.innerHTML = `
-<style>
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const FLOATING_CSS = `
   :host{all:initial;}
   .wrap{display:flex;flex-direction:column;align-items:center;gap:8px;}
   button{border:1px solid rgba(0,0,0,.08);background:#fff;color:#333;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(0,0,0,.18);transition:background .15s,color .15s,transform .1s;padding:0;font:inherit;}
@@ -30,25 +19,67 @@ export function createFloatingButton(
   .retry:hover{filter:brightness(1.08);}
   .retry svg{width:14px;height:14px;}
   @media (prefers-color-scheme: dark){button{background:#1f2937;color:#e5e7eb;border-color:rgba(255,255,255,.1);}.retry{background:#dc2626;color:#fff;}}
-</style>
-<div class="wrap">
-  <button class="retry" title="Retry failed translations" aria-label="Retry failed translations">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
-    <span class="count"></span>
-  </button>
-  <button class="main" title="Inline Translator: translate / restore (Alt+A)" aria-label="Translate this page">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-      <!-- 文: dot + bar on top, crossing 撇/捺 below; a vertical through the bar reads as 丈 -->
-      <path d="M4 5.5h7.5M7.75 3v2.5"/>
-      <path d="M10 5.5c-.2 2.2-1.6 4.6-6.5 8.5"/>
-      <path d="M4.5 8c1.7 2.7 4.3 5 7 6.5"/>
-      <path d="M12.5 20l4-9 4 9M13.8 17h5.4"/>
-    </svg>
-  </button>
-</div>`;
-  const main = shadow.querySelector('.main') as HTMLButtonElement;
-  const retry = shadow.querySelector('.retry') as HTMLButtonElement;
-  const count = shadow.querySelector('.count') as HTMLSpanElement;
+`;
+
+function buildSvg(strokeWidth: string, paths: string[]): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', strokeWidth);
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  for (const d of paths) {
+    const p = document.createElementNS(SVG_NS, 'path');
+    p.setAttribute('d', d);
+    svg.appendChild(p);
+  }
+  return svg;
+}
+
+/** Floating toggle at bottom right: Shadow DOM isolates styles from the host page.
+ *  Built via DOM APIs (no innerHTML) so strict Trusted-Types CSP pages never throw. */
+export function createFloatingButton(
+  onToggle: () => void,
+  onRetry: () => void,
+  getStatus: () => EngineStatus,
+): { host: HTMLElement; sync: () => void } {
+  const host = document.createElement('div');
+  host.setAttribute('data-ilt-ui', '');
+  host.setAttribute('translate', 'no');
+  host.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483647;';
+  const shadow = host.attachShadow({ mode: 'open' });
+
+  const style = document.createElement('style');
+  style.textContent = FLOATING_CSS;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'wrap';
+
+  const retry = document.createElement('button');
+  retry.className = 'retry';
+  retry.title = 'Retry failed translations';
+  retry.setAttribute('aria-label', 'Retry failed translations');
+  const count = document.createElement('span');
+  count.className = 'count';
+  retry.append(buildSvg('2', ['M21 12a9 9 0 1 1-2.64-6.36', 'M21 3v6h-6']), count);
+
+  const main = document.createElement('button');
+  main.className = 'main';
+  main.title = 'Inline Translator: translate / restore (Alt+A)';
+  main.setAttribute('aria-label', 'Translate this page');
+  // 文: dot + bar on top, crossing 撇/捺 below; a vertical through the bar reads as 丈
+  main.append(
+    buildSvg('1.8', [
+      'M4 5.5h7.5M7.75 3v2.5',
+      'M10 5.5c-.2 2.2-1.6 4.6-6.5 8.5',
+      'M4.5 8c1.7 2.7 4.3 5 7 6.5',
+      'M12.5 20l4-9 4 9M13.8 17h5.4',
+    ]),
+  );
+
+  wrap.append(retry, main);
+  shadow.append(style, wrap);
   const sync = () => {
     const s = getStatus();
     main.classList.toggle('active', s.active);

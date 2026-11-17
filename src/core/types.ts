@@ -19,7 +19,9 @@ export interface Paragraph {
   rich: string;
   tokens: Token[];
   hash: string;
+  preWhitespace?: boolean;
   wrapper?: HTMLElement;
+  unclamped?: Element[];
 }
 
 export type Root = Element | ShadowRoot;
@@ -34,4 +36,6 @@ export interface WalkContext {
   styles: WeakMap<Element, CSSStyleDeclaration>;
   blockDesc: WeakMap<Element, boolean>;
   shell: WeakMap<Element, boolean>;
+  /** Notified when an element is skipped solely because it is currently hidden (display:none / visibility:hidden). */
+  onHidden?: (el: Element) => void;
 }

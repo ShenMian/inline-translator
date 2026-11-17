@@ -166,6 +166,65 @@ def run_fixture(page):
         "fixture: metadata value inline beside label",
         page.eval_on_selector("#meta", "el => { const w = el.querySelector(':scope > .ilt-t'); return !!w && getComputedStyle(w).display === 'inline'; }"),
     )
+    check(
+        "fixture: prose div renders as block",
+        page.eval_on_selector("#prose-div", "el => { const w = el.querySelector(':scope > .ilt-t'); return !!w && getComputedStyle(w).display === 'block'; }"),
+    )
+    check(
+        "fixture: inline translate=no preserved in place",
+        page.eval_on_selector("#inline-notrans", "el => { const w = el.querySelector('.ilt-t'); return !!w && !!w.querySelector('.kbd-chip') && w.textContent.includes('Ctrl+K'); }"),
+    )
+    check(
+        "fixture: nested hidden/sr-only/icon stripped & link target kept",
+        page.eval_on_selector(
+            "#nested-skip",
+            """el => {
+                const a = el.querySelector('.ilt-t a');
+                if (!a) return false;
+                const t = a.textContent;
+                return a.getAttribute('target') === '_blank' && (a.getAttribute('rel') || '').includes('noopener')
+                    && !t.includes('arrow_forward') && !t.includes('↗') && !t.includes('new tab') && !t.includes('新标签');
+            }""",
+        ),
+    )
+    check(
+        "fixture: inline-flex link inside prose stays single paragraph",
+        page.eval_on_selector(
+            "#inline-flex-prose",
+            "el => el.querySelectorAll('.ilt-t').length === 1 && !!el.querySelector('.ilt-t a[href=\"https://example.com/guide\"] svg')",
+        ),
+    )
+    check(
+        "fixture: visible pre block splits surrounding prose runs",
+        page.eval_on_selector(
+            "#split-around-pre",
+            "el => el.querySelectorAll(':scope > .ilt-t').length === 2 && !el.querySelector('pre .ilt-t')",
+        ),
+    )
+    check(
+        "fixture: ruby strips rt/rp without splitting sentence",
+        page.eval_on_selector("#ruby-p", "el => el.querySelectorAll('.ilt-t').length === 1 && !el.querySelector('.ilt-t rt')"),
+    )
+    check(
+        "fixture: katex math kept atomic",
+        page.eval_on_selector("#math-p", "el => { const k = el.querySelector('.ilt-t .katex'); return !!k && k.textContent === 'E = mc^2'; }"),
+    )
+    check(
+        "fixture: direct text inside display:contents translated",
+        page.eval_on_selector("#direct-contents", "el => !!el.querySelector('.ilt-t')"),
+    )
+    check(
+        "fixture: line-clamp unlocked while translated",
+        page.eval_on_selector("#clamped-p", "el => el.hasAttribute('data-ilt-unclamp') && getComputedStyle(el).webkitLineClamp === 'none'"),
+    )
+    check(
+        "fixture: pre-wrap preserves whitespace mode",
+        page.eval_on_selector("#prewrap-div", "el => { const w = el.querySelector('.ilt-t'); return !!w && getComputedStyle(w).whiteSpace === 'pre-wrap'; }"),
+    )
+    check(
+        "fixture: font wrapper immune to host span CSS",
+        page.eval_on_selector("#span-trap", "el => { const w = el.querySelector('.ilt-t'); return !!w && w.tagName === 'FONT' && getComputedStyle(w).display === 'block'; }"),
+    )
     check("fixture: long paragraph translated", page.eval_on_selector("#long", "el => { const w = el.querySelector('.ilt-t'); return !!w && w.textContent.length > 500; }"))
 
     shadow_n = page.eval_on_selector("#shadow-host", "el => el.shadowRoot.querySelectorAll('.ilt-t').length")
@@ -184,6 +243,12 @@ def run_fixture(page):
             break
         time.sleep(0.5)
     check("fixture: same-origin iframe translated", frame_n >= 1, f"count={frame_n}")
+
+    # Hidden <details> reveals and translates on open
+    check("fixture: closed details body initially untranslated", no_wrapper_after(page, "#details-p"))
+    page.click("#details-reveal > summary")
+    page.wait_for_selector("#details-p .ilt-t", timeout=15000)
+    check("fixture: opened details body translated", True)
 
     # Dynamic insertion
     page.click("#add-btn")
@@ -210,6 +275,7 @@ def run_fixture(page):
     toggle(page)
     time.sleep(0.5)
     check("fixture: no residue after restore", count_wrappers(page) == 0, f"count={count_wrappers(page)}")
+    check("fixture: line-clamp attribute cleaned up after restore", page.eval_on_selector("#clamped-p", "el => !el.hasAttribute('data-ilt-unclamp')"))
 
     page.screenshot(path=str(SHOTS / "fixture.png"), full_page=True)
 

@@ -14,6 +14,8 @@
   td { border: 1px solid #ccc; padding: 6px; }
   [contenteditable] { border: 1px dashed #f59e0b; padding: 6px; }
   button { margin: 4px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+  #span-trap > span { display: none !important; }
 </style>
 </head>
 <body>
@@ -50,6 +52,19 @@ console.log(x);</pre>
   <span id="crumb-last" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Current crumb page</span>
 </div>
 <div id="meta"><h3>Meta label</h3><span>Metadata value text</span></div>
+<div id="prose-div">Modern web applications frequently render long article paragraphs inside plain div containers instead of p elements.</div>
+<p id="inline-notrans">Press <span translate="no" class="kbd-chip">Ctrl+K</span> to open the command palette.</p>
+<p id="nested-skip"><a href="https://example.com/docs" target="_blank">Read documentation <span aria-hidden="true">↗</span><span class="sr-only">opens in new tab</span><span class="material-icons">arrow_forward</span></a></p>
+<p id="inline-flex-prose">Explore our <a href="https://example.com/guide" style="display:inline-flex;align-items:center;gap:4px">complete developer guide <svg width="12" height="12"><circle cx="6" cy="6" r="5"/></svg></a> before deploying.</p>
+<div id="split-around-pre">Introductory prose before the code block.<pre>npm run build</pre>Concluding prose after the code block.</div>
+<p id="ruby-p">Study <ruby>ancient<rp>(</rp><rt>ふるい</rt><rp>)</rp></ruby> temple architecture across the region.</p>
+<p id="math-p">Given the formula <span class="katex">E = mc^2</span> we can derive the energy.</p>
+<section><div class="contents" id="direct-contents">Direct text inside a display contents wrapper translates properly.</div></section>
+<p id="clamped-p" style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden">Clamped summary card that would otherwise clip its translated second line completely.</p>
+<div id="prewrap-div" style="white-space:pre-wrap">First line of a multi-line social post.
+Second line of a multi-line social post.</div>
+<p id="span-trap">Host rules hiding child spans must not hide translations.</p>
+<details id="details-reveal"><summary>Expand hidden section</summary><p id="details-p">Accordion body revealed dynamically when expanded by the reader.</p></details>
 <div id="shadow-host"></div>
 <iframe id="frame1" src="frame.html" width="320" height="90"></iframe>
 <div>

@@ -4,22 +4,27 @@ import type { SiteRule } from '../lib/rules';
 export const BUILTIN_RULES: SiteRule[] = [
   {
     matches: ['*://*.wikipedia.org/*', '*://*.wikimedia.org/*', '*://*.wiktionary.org/*'],
-    ignore: ['.mw-editsection', '.reference', '.navbox', '.vertical-navbox', '.catlinks', '.mw-jump-link', '.sistersitebox', '.noprint'],
+    ignore: ['.mw-editsection', '.reference', '.navbox', '.vertical-navbox', '.catlinks', '.mw-jump-link', '.sistersitebox', '.noprint', '.mwe-math-element'],
   },
   {
     matches: ['*://github.com/*', '*://*.github.com/*'],
-    ignore: ['nav', '.Header', '.footer', '.blob-wrapper', '.highlight', '.js-blob-code', '.commit-tease', '.react-blob-print-hide', '[data-testid="code-cell"]', '.BorderGrid'],
+    ignore: [
+      'nav', '.Header', '.AppHeader', '.footer', '.blob-wrapper', '.highlight', '.js-blob-code',
+      '.commit-tease', '.react-blob-print-hide', '[data-testid="code-cell"]', '.BorderGrid',
+      '.react-directory-filename-column', '[id^="DndDescribedBy-"]', '[id^="DndLiveRegion-"]',
+    ],
     keep: ['a:has(code)', '.markdown-body code'],
   },
   {
     matches: ['*://news.ycombinator.com/*'],
     ignore: ['.sitebit', '.subtext'],
     inline: ['.pagetop', '.yclinks'],
+    keep: ['.hnname'],
   },
   {
     matches: ['*://x.com/*', '*://twitter.com/*', '*://mobile.x.com/*'],
-    block: ['[data-testid="tweetText"]'],
-    ignore: ['nav', '[data-testid="sidebarColumn"]', '[data-testid="SideNav_AccountSwitcher_Button"]', '[aria-label="Trending"]'],
+    block: ['[data-testid="tweetText"]', '[data-testid="UserDescription"]'],
+    ignore: ['nav', '[data-testid="sidebarColumn"]', '[data-testid="SideNav_AccountSwitcher_Button"]', '[aria-label="Trending"]', '[data-testid="videoPlayer"]'],
   },
   {
     matches: ['*://*.reddit.com/*', '*://reddit.com/*'],
@@ -27,7 +32,7 @@ export const BUILTIN_RULES: SiteRule[] = [
   },
   {
     matches: ['*://*.youtube.com/*', '*://youtube.com/*'],
-    ignore: ['#masthead-container', '#actions', '#menu', '#sponsor-button', 'ytd-watch-metadata #top-row', '.ytp-caption-window-container', '#guide', '#chips'],
+    ignore: ['#masthead-container', '#actions', '#menu', '#sponsor-button', 'ytd-watch-metadata #top-row', '.ytp-caption-window-container', '#player', '#guide', '#chips'],
   },
   {
     matches: ['*://stackoverflow.com/*', '*://*.stackexchange.com/*', '*://serverfault.com/*', '*://superuser.com/*'],

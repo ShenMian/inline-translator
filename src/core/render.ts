@@ -1,17 +1,18 @@
 import type { StyleId } from '../lib/settings';
+import { isInsideOurs, isOurs, MARK, safeMatches, tagOf, winOf, WRAPPER_CLASS } from './filter';
 import type { Paragraph } from './types';
 import { INLINE_LEVEL_DISPLAYS } from './walk';
 
-export const WRAPPER_CLASS = 'ilt-t';
-export const MARK = '__ilt__';
+export { isInsideOurs, isOurs, MARK, WRAPPER_CLASS };
 
 // Translation typography matches the original: all text properties inherit; no dimming or
 // weight resets. Decorative themes are opt-in.
 const BASE_CSS = `
-.ilt-t{display:inline;font:inherit;color:inherit;letter-spacing:inherit;word-spacing:inherit;text-align:inherit;text-transform:inherit;text-indent:inherit;border:0;background:none;float:none;position:static;width:auto;height:auto;margin:0;padding:0;white-space:normal;}
+.ilt-t{display:inline;font:inherit;color:inherit;letter-spacing:inherit;word-spacing:inherit;text-align:inherit;text-transform:inherit;text-indent:inherit;border:0;background:none;float:none;position:static;width:auto;height:auto;margin:0;padding:0;white-space:inherit;overflow-wrap:break-word;}
 .ilt-t.ilt-block{display:block;margin-top:.3em;}
 .ilt-t.ilt-inline{margin-left:.45em;}
 .ilt-t img,.ilt-t svg{max-width:100%;vertical-align:middle;}
+[data-ilt-unclamp]{-webkit-line-clamp:unset!important;line-clamp:unset!important;max-height:none!important;}
 `;
 
 // Text-level themes decorate the inline .ilt-i inner span so they fragment per line on block
@@ -44,18 +45,27 @@ export function styleCss(style: StyleId): string {
 
 export function injectStyles(root: Document | ShadowRoot, ruleCss: string, style: StyleId): () => void {
   const css = styleCss(style) + ruleCss;
-  // Constructed sheets must use the target document's own realm constructor (sharing across documents is rejected)
+  // Constructed sheets must use the target document's own realm constructor (sharing across documents
+  // is rejected, and Firefox Xray wrappers forbid assigning content-script arrays to adoptedStyleSheets)
   const doc = root.nodeType === Node.DOCUMENT_NODE ? (root as Document) : (root as ShadowRoot).ownerDocument;
   const SheetCtor = doc?.defaultView?.CSSStyleSheet;
   if (SheetCtor && 'adoptedStyleSheets' in root) {
-    const sheet = new SheetCtor();
-    sheet.replaceSync(css);
-    root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
-    return () => {
-      root.adoptedStyleSheets = root.adoptedStyleSheets.filter((s) => s !== sheet);
-    };
+    try {
+      const sheet = new SheetCtor();
+      sheet.replaceSync(css);
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+      return () => {
+        try {
+          root.adoptedStyleSheets = root.adoptedStyleSheets.filter((s) => s !== sheet);
+        } catch {
+          /* root already torn down */
+        }
+      };
+    } catch {
+      /* fall through to <style> element */
+    }
   }
-  const el = document.createElement('style');
+  const el = (doc ?? document).createElement('style');
   el.setAttribute('data-ilt-style', '');
   el.textContent = css;
   // Cross-realm (iframe) documents cannot be tested with instanceof
@@ -78,8 +88,9 @@ function matchSourceStyle(w: HTMLElement, p: Paragraph): void {
   const el = p.anchor as Element;
   const parent = el.parentElement;
   if (!parent) return;
-  const cs = getComputedStyle(el);
-  const ps = getComputedStyle(parent);
+  const win = winOf(el);
+  const cs = win.getComputedStyle(el);
+  const ps = win.getComputedStyle(parent);
   for (const prop of TEXT_PROPS) {
     const v = cs.getPropertyValue(prop);
     if (v !== ps.getPropertyValue(prop)) w.style.setProperty(prop, v);
@@ -87,14 +98,15 @@ function matchSourceStyle(w: HTMLElement, p: Paragraph): void {
 }
 
 /** Label-like units: translation follows inline on the same line to the right of the original,
- *  avoiding block-in-inline-flow stacking; only prose paragraphs get their own line. */
+ *  avoiding block-in-inline-flow stacking; prose paragraphs (including <div> prose!) get their own line. */
 const CHROME_SEL = 'nav,header,footer,aside,[role="navigation"],[role="banner"],[role="contentinfo"]';
 const FLEX_DISPLAYS = new Set([
   'flex', 'inline-flex', 'grid', 'inline-grid',
   'table-row', 'table-row-group', 'table-header-group', 'table-footer-group',
 ]);
-/** Prose containers keep block translations even when laid out as flex/grid items. */
-const PROSE_TAGS = new Set(['P', 'ARTICLE', 'SECTION', 'BLOCKQUOTE', 'TD', 'TH', 'DD', 'DT', 'LI', 'FIGCAPTION']);
+const INLINE_UI_TAGS = new Set(['A', 'BUTTON', 'LABEL', 'SUMMARY', 'LEGEND', 'OPTION']);
+/** Prose containers keep block translations even when short. */
+const PROSE_TAGS = new Set(['P', 'ARTICLE', 'SECTION', 'BLOCKQUOTE', 'TD', 'DD', 'LI', 'FIGCAPTION']);
 
 /** Walk up across shadow boundaries (closest inside a shadow cannot see light-DOM ancestors). */
 function inChrome(el: Element): boolean {
@@ -107,45 +119,73 @@ function inChrome(el: Element): boolean {
   return false;
 }
 
-function isInlineUnit(p: Paragraph): boolean {
+function isShortLabelText(text: string): boolean {
+  if (text.includes('\n') || text.length > 36 || /[.!?。！？]$/.test(text)) return false;
+  const cjk = (text.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g) ?? []).length;
+  if (cjk > 16) return false;
+  return text.trim().split(/\s+/).length <= 6;
+}
+
+function isInlineUnit(p: Paragraph, blockSel = '', inlineSel = ''): boolean {
   const r = p.root;
+  if (blockSel && safeMatches(r, blockSel)) return false;
+  if (inlineSel && safeMatches(r, inlineSel)) return true;
+  const tag = tagOf(r);
   if (
-    /^H[1-6]$/.test(r.tagName) ||
+    /^H[1-6]$/.test(tag) ||
     r.getAttribute('role') === 'heading' ||
-    r.tagName === 'A' ||
+    INLINE_UI_TAGS.has(tag) ||
     inChrome(r)
   ) {
     return true;
   }
-  const cs = getComputedStyle(r);
-  if (FLEX_DISPLAYS.has(cs.display) || INLINE_LEVEL_DISPLAYS.has(cs.display)) return true;
-  // Prose containers get their own line; otherwise a paragraph whose own nodes are all
-  // inline-level (crumbs, metadata values, badge chips) is label-like: the translation
-  // flows inline inside the container instead of stacking a new line. Block siblings
-  // outside the run (e.g. a label H3) do not make the run prose.
-  if (PROSE_TAGS.has(r.tagName)) return false;
+  const win = winOf(r);
+  const cs = win.getComputedStyle(r);
+  if (FLEX_DISPLAYS.has(cs.display) || INLINE_LEVEL_DISPLAYS.has(cs.display) || cs.whiteSpace === 'nowrap') return true;
+  if (PROSE_TAGS.has(tag) || (p.preWhitespace && p.text.includes('\n'))) return false;
+  if (!isShortLabelText(p.text)) return false;
   return p.nodes.every(
-    (n) => n.nodeType === Node.TEXT_NODE || INLINE_LEVEL_DISPLAYS.has(getComputedStyle(n as Element).display),
+    (n) => n.nodeType === Node.TEXT_NODE || INLINE_LEVEL_DISPLAYS.has(win.getComputedStyle(n as Element).display),
   );
 }
 
-export function renderTranslation(p: Paragraph, nodes: Node[], lang: string): void {
+const UNCLAMP_STOP = new Set(['BODY', 'HTML', 'MAIN', 'ARTICLE', 'SECTION', 'NAV', 'HEADER', 'FOOTER', 'ASIDE']);
+
+function unclampAncestors(p: Paragraph): void {
+  if (inChrome(p.root)) return;
+  const win = winOf(p.root);
+  let cur: Element | null = p.root;
+  for (let depth = 0; cur && depth < 3; depth++, cur = cur.parentElement) {
+    if (UNCLAMP_STOP.has(tagOf(cur))) break;
+    const cs = win.getComputedStyle(cur);
+    if (cs.webkitLineClamp && cs.webkitLineClamp !== 'none' && cs.webkitLineClamp !== '0') {
+      cur.setAttribute('data-ilt-unclamp', '');
+      (p.unclamped ??= []).push(cur);
+    }
+  }
+}
+
+export function renderTranslation(p: Paragraph, nodes: Node[], lang: string, blockSel = '', inlineSel = ''): void {
   removeWrapper(p);
   const parent = p.anchor.parentNode;
   if (!parent) return;
   const doc = parent.ownerDocument ?? document;
-  const w = doc.createElement('span');
+  // Use <font> rather than <span> so host CSS rules like `a > span` or `.btn > span` never match us
+  const w = doc.createElement('font');
   w.className = `${WRAPPER_CLASS} notranslate`;
   w.setAttribute('translate', 'no');
   w.setAttribute('lang', lang);
   (w as unknown as Record<string, unknown>)[MARK] = true;
-  // Inline inner span: text-level themes fragment per line even on block paragraphs
-  const inner = doc.createElement('span');
+  if (winOf(p.root).getComputedStyle(p.root).whiteSpace === 'pre') w.style.whiteSpace = 'pre-wrap';
+  // Inline inner element: text-level themes fragment per line even on block paragraphs
+  const inner = doc.createElement('font');
   inner.className = 'ilt-i';
   inner.append(...nodes);
   w.append(inner);
   matchSourceStyle(w, p);
-  w.classList.add(isInlineUnit(p) ? 'ilt-inline' : 'ilt-block');
+  const inline = isInlineUnit(p, blockSel, inlineSel);
+  w.classList.add(inline ? 'ilt-inline' : 'ilt-block');
+  unclampAncestors(p);
   parent.insertBefore(w, p.anchor.nextSibling);
   p.wrapper = w;
 }
@@ -153,23 +193,10 @@ export function renderTranslation(p: Paragraph, nodes: Node[], lang: string): vo
 export function removeWrapper(p: Paragraph): void {
   p.wrapper?.remove();
   p.wrapper = undefined;
-}
-
-export function isOurs(node: Node): boolean {
-  if (node.nodeType !== Node.ELEMENT_NODE) return false;
-  const el = node as Element;
-  return (
-    (el as unknown as Record<string, unknown>)[MARK] === true ||
-    el.classList.contains(WRAPPER_CLASS) ||
-    el.hasAttribute('data-ilt-ui')
-  );
-}
-
-export function isInsideOurs(node: Node): boolean {
-  let n: Node | null = node;
-  while (n) {
-    if (isOurs(n)) return true;
-    n = n.parentNode;
+  if (p.unclamped) {
+    for (const el of p.unclamped) {
+      if (!el.querySelector(`.${WRAPPER_CLASS}`)) el.removeAttribute('data-ilt-unclamp');
+    }
+    p.unclamped = undefined;
   }
-  return false;
 }

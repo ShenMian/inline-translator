@@ -4,6 +4,7 @@ import { joinSelectors, matchRules, type EffectiveRule } from '../lib/rules';
 import type { Settings } from '../lib/settings';
 import { BUILTIN_RULES } from '../rules/builtin';
 import { getService, ServiceError, type TranslateService } from '../services';
+import { getShadow, isBlockedByAncestor, isInsideOurs, isOurs, styleOf, tagOf } from './filter';
 import { Watcher } from './observe';
 import { injectStyles, removeWrapper, renderTranslation } from './render';
 import { restore } from './serialize';
@@ -20,6 +21,16 @@ const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY = 1200;
 /** Cap DOM work per frame so a cache-warm rescan never blocks input for long. */
 const RENDER_CHUNK = 80;
+/** Cap display:none reveal observations so huge tables/menus stay featherweight. */
+const MAX_HIDDEN_WATCH = 1500;
+
+/** Strip in-page #anchor fragments while preserving HashRouter routes (#/path, #!/path). */
+export function routeKey(url: string): string {
+  const idx = url.indexOf('#');
+  if (idx < 0) return url;
+  const hash = url.slice(idx);
+  return /^#!?\/.+/.test(hash) ? url : url.slice(0, idx);
+}
 
 /** Live engine state for the floating button / popup: busy drives the spinner, failed the retry affordance. */
 export interface EngineStatus {
@@ -43,10 +54,12 @@ export class Engine {
   private settings: Settings;
   private service: TranslateService;
   private rule: EffectiveRule;
-  private base: Omit<WalkContext, 'styles' | 'blockDesc' | 'shell'>;
+  private base: Omit<WalkContext, 'styles' | 'blockDesc' | 'shell' | 'onHidden'>;
   private watcher: Watcher;
   private io: IntersectionObserver | null = null;
   private ioTargets = new Map<Element, Paragraph[]>();
+  private hiddenRo: ResizeObserver | null = null;
+  private observedHidden = new Set<Element>();
   private nodePara = new WeakMap<Node, Paragraph>();
   private wrappers = new Set<Paragraph>();
   private subRoots = new Set<Node>();
@@ -69,7 +82,9 @@ export class Engine {
 
   private dirty = new Set<Element>();
   private dirtyTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastUrl = location.href;
+  private shadowTimer: ReturnType<typeof setTimeout> | null = null;
+  private navCleanup: (() => void) | null = null;
+  private lastRoute = routeKey(location.href);
   private destroyed = false;
 
   /** Pending DOM writes, coalesced into one animation frame (map dedupes repeat results). */
@@ -94,7 +109,20 @@ export class Engine {
   }
 
   private freshCtx(): WalkContext {
-    return { ...this.base, styles: new WeakMap(), blockDesc: new WeakMap(), shell: new WeakMap() };
+    return {
+      ...this.base,
+      styles: new WeakMap(),
+      blockDesc: new WeakMap(),
+      shell: new WeakMap(),
+      onHidden: (el) => this.watchHidden(el),
+    };
+  }
+
+  private watchHidden(el: Element): void {
+    if (!this.hiddenRo || el.ownerDocument !== document) return;
+    if (this.observedHidden.has(el) || this.observedHidden.size >= MAX_HIDDEN_WATCH) return;
+    this.observedHidden.add(el);
+    this.hiddenRo.observe(el);
   }
 
   toggle(): void {
@@ -105,6 +133,7 @@ export class Engine {
   start(): void {
     if (this.active || this.destroyed || !document.body) return;
     this.active = true;
+    this.lastRoute = routeKey(location.href);
     this.applyStyles(document);
     this.io = new IntersectionObserver(
       (entries) => {
@@ -118,9 +147,29 @@ export class Engine {
       },
       { rootMargin: '0px 0px 200% 0px', threshold: 0 },
     );
+    if (typeof ResizeObserver === 'function') {
+      this.hiddenRo = new ResizeObserver((entries) => {
+        const revealed = new Set<Element>();
+        for (const e of entries) {
+          const r = e.contentRect;
+          if (r.width > 0 || r.height > 0 || e.target.getClientRects().length > 0) {
+            this.hiddenRo?.unobserve(e.target);
+            this.observedHidden.delete(e.target as Element);
+            revealed.add(e.target as Element);
+          }
+        }
+        if (revealed.size) this.scheduleRescan(revealed);
+      });
+    }
     this.scanRoot(document.body);
     this.watcher.observe(document.body);
     this.watcher.observeDocument();
+    this.bindNavigation();
+    // Catch custom elements that attach shadow roots asynchronously shortly after document_idle
+    this.shadowTimer = setTimeout(() => {
+      this.shadowTimer = null;
+      if (this.active && document.body) this.discoverSubRoots(document.body);
+    }, 900);
     this.emitStatus();
   }
 
@@ -133,7 +182,14 @@ export class Engine {
     this.io?.disconnect();
     this.io = null;
     this.ioTargets.clear();
+    this.hiddenRo?.disconnect();
+    this.hiddenRo = null;
+    this.observedHidden.clear();
     this.watcher.disconnect();
+    this.navCleanup?.();
+    this.navCleanup = null;
+    if (this.shadowTimer) clearTimeout(this.shadowTimer);
+    this.shadowTimer = null;
     this.subRoots.clear();
     this.disposeStyles();
     this.queue = [];
@@ -194,12 +250,19 @@ export class Engine {
   updateSettings(s: Settings): void {
     const prev = this.settings;
     // Style is pure CSS, and rule edits change how the page is scanned; neither needs new requests.
-    const retranslate = this.active && (s.targetLang !== prev.targetLang || s.service !== prev.service);
+    const oaChanged =
+      s.service === 'openai' &&
+      (s.openai.baseUrl !== prev.openai.baseUrl ||
+        s.openai.apiKey !== prev.openai.apiKey ||
+        s.openai.model !== prev.openai.model);
+    const retranslate = this.active && (s.targetLang !== prev.targetLang || s.service !== prev.service || oaChanged);
     const rulesChanged = this.active && JSON.stringify(s.customRules) !== JSON.stringify(prev.customRules);
     const styleChanged = this.active && s.style !== prev.style;
+    const nextRule = matchRules(location.href, [...BUILTIN_RULES, ...s.customRules]);
+    const siteRuleChanged = this.active && JSON.stringify(nextRule) !== JSON.stringify(this.rule);
     this.settings = s;
     this.service = getService(s);
-    this.rule = matchRules(location.href, [...BUILTIN_RULES, ...s.customRules]);
+    this.rule = nextRule;
     this.base = {
       rule: this.rule,
       ignoreSel: joinSelectors(this.rule.ignore),
@@ -208,13 +271,37 @@ export class Engine {
       keepSel: joinSelectors(this.rule.keep),
     };
     if (!this.active) return;
-    if (retranslate || rulesChanged) {
+    if (retranslate || rulesChanged || siteRuleChanged) {
       this.stop();
       this.start();
     } else if (styleChanged) {
       // Swap stylesheets in place; the DOM and the cache stay untouched
       for (const root of Array.from(this.styleRoots.keys())) this.applyStyles(root);
     }
+  }
+
+  private bindNavigation(): void {
+    this.navCleanup?.();
+    const onNav = () => {
+      if (!this.active) return;
+      if (routeKey(location.href) !== this.lastRoute && document.body) {
+        this.scheduleRescan(new Set([document.body]));
+      }
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted && this.active && document.body) this.scheduleRescan(new Set([document.body]));
+    };
+    window.addEventListener('popstate', onNav);
+    window.addEventListener('hashchange', onNav);
+    window.addEventListener('pageshow', onPageShow);
+    const nav = (window as { navigation?: EventTarget }).navigation;
+    nav?.addEventListener('navigatesuccess', onNav);
+    this.navCleanup = () => {
+      window.removeEventListener('popstate', onNav);
+      window.removeEventListener('hashchange', onNav);
+      window.removeEventListener('pageshow', onPageShow);
+      nav?.removeEventListener('navigatesuccess', onNav);
+    };
   }
 
   private applyStyles(root: Document | ShadowRoot): void {
@@ -240,6 +327,22 @@ export class Engine {
     this.discoverSubRoots(root);
   }
 
+  /** Walk past display:contents wrappers (which have 0x0 client rects and never trigger IO). */
+  private resolveIoTarget(p: Paragraph, ctx: WalkContext): Element | null {
+    let cur: Element | null =
+      p.anchor.nodeType === Node.ELEMENT_NODE ? (p.anchor as Element) : (p.anchor.parentElement ?? p.root);
+    while (cur && cur.nodeType === Node.ELEMENT_NODE) {
+      if (styleOf(cur, ctx).display !== 'contents') return cur;
+      if (cur.parentElement) {
+        cur = cur.parentElement;
+      } else {
+        const root = cur.getRootNode();
+        cur = root.nodeType === Node.DOCUMENT_FRAGMENT_NODE ? (root as ShadowRoot).host : null;
+      }
+    }
+    return null;
+  }
+
   private register(p: Paragraph, ctx: WalkContext, immediate = false): void {
     if (isSameLang(p.text, this.settings.targetLang)) return;
     const existing = this.nodePara.get(p.anchor);
@@ -253,8 +356,8 @@ export class Engine {
       this.enqueue(p);
       return;
     }
-    const target = p.anchor.nodeType === Node.ELEMENT_NODE ? (p.anchor as Element) : (p.anchor.parentElement ?? p.root);
-    if (target.nodeType !== Node.ELEMENT_NODE) {
+    const target = this.resolveIoTarget(p, ctx);
+    if (!target || target.ownerDocument !== document) {
       this.enqueue(p);
       return;
     }
@@ -265,24 +368,27 @@ export class Engine {
       this.io?.observe(target);
     }
     list.push(p);
-    void ctx;
   }
 
-  /** Pierce open shadow roots and same-origin iframes; cross-origin iframes get their own all_frames injection. */
+  /** Pierce shadow roots and same-origin iframes; cross-origin iframes get their own all_frames injection. */
   private discoverSubRoots(root: Root): void {
-    const scope = root instanceof Element ? root : null;
-    const els = scope ? scope.querySelectorAll('*') : (root as ShadowRoot).querySelectorAll('*');
+    // Use nodeType rather than instanceof Element so cross-realm iframe elements match too
+    const els =
+      root.nodeType === Node.ELEMENT_NODE
+        ? (root as Element).querySelectorAll('*')
+        : (root as ShadowRoot).querySelectorAll('*');
     for (const el of Array.from(els)) {
+      if (isOurs(el) || isInsideOurs(el)) continue;
       // Shadow/iframe piercing must honor ignore regions too, or chrome web components leak translations
       if (this.base.ignoreSel && el.closest(this.base.ignoreSel)) continue;
-      const sr = el.shadowRoot;
+      const sr = getShadow(el);
       if (sr && !this.subRoots.has(sr)) {
         this.subRoots.add(sr);
         this.applyStyles(sr);
         this.scanRoot(sr);
         this.watcher.observe(sr);
       }
-      if (el.tagName === 'IFRAME') {
+      if (tagOf(el) === 'IFRAME') {
         const frame = el as HTMLIFrameElement;
         const tryRegister = () => {
           if (!this.active) return;
@@ -337,14 +443,23 @@ export class Engine {
       this.firstQueuedAt = 0;
       return;
     }
-    if (this.inflight >= MAX_INFLIGHT) {
-      this.flushTimer = setTimeout(() => this.flush(), 400);
-      return;
+    while (this.queue.length && this.inflight < MAX_INFLIGHT) {
+      let take = 0;
+      let chars = 0;
+      while (take < this.queue.length && take < BATCH_ITEMS) {
+        const len = this.queue[take]!.rich.length;
+        if (take > 0 && chars + len > BATCH_CHARS) break;
+        chars += len;
+        take++;
+      }
+      const batch = this.queue.splice(0, take);
+      this.queueChars = Math.max(0, this.queueChars - chars);
+      if (!this.queue.length) this.firstQueuedAt = 0;
+      this.dispatchBatch(batch);
     }
-    const batch = this.queue;
-    this.queue = [];
-    this.queueChars = 0;
-    this.firstQueuedAt = 0;
+  }
+
+  private dispatchBatch(batch: Paragraph[]): void {
     this.inflight++;
     const ctrl = new AbortController();
     this.inflightCtrls.add(ctrl);
@@ -380,6 +495,7 @@ export class Engine {
       .finally(() => {
         this.inflight--;
         this.inflightCtrls.delete(ctrl);
+        if (this.active && this.queue.length) this.flush();
         this.emitStatus();
       });
   }
@@ -410,7 +526,16 @@ export class Engine {
     if (!this.active || !p.anchor.isConnected || this.nodePara.get(p.anchor) !== p) return;
     const nodes = restore(tr, p.tokens);
     if (!nodes.length) return;
-    renderTranslation(p, nodes, this.settings.targetLang);
+    // Skip redundant bilingual echoes when proper nouns / versions translate identically (e.g. "jQuery 4.1.0")
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    const outText = norm(nodes.map((n) => n.textContent ?? '').join(''));
+    const srcText = norm(p.nodes.map((n) => n.textContent ?? '').join(''));
+    if (!outText || outText === srcText) {
+      this.failed.delete(p);
+      this.attempts.delete(p);
+      return;
+    }
+    renderTranslation(p, nodes, this.settings.targetLang, this.base.blockSel, this.base.inlineSel);
     this.wrappers.add(p);
     this.failed.delete(p);
     this.attempts.delete(p);
@@ -438,11 +563,11 @@ export class Engine {
     }
     for (const [p] of chunk) this.renderQueue.delete(p);
 
-    const anchor = this.pickScrollAnchor(chunk);
+    const anchor = this.captureScrollAnchor(chunk);
     // Read before the writes: restoring + inserting invalidates layout anyway
-    const before = anchor ? anchor.el.getBoundingClientRect().top : 0;
+    const before = anchor ? anchor.top : 0;
     for (const [p, tr] of chunk) this.applyResult(p, tr);
-    if (anchor) {
+    if (anchor && anchor.el.isConnected) {
       const delta = anchor.el.getBoundingClientRect().top - before;
       // Translations inserted above the viewport grow the page and push the reader down; scroll
       // back by the same amount. A huge delta means unrelated layout churn, so leave it alone.
@@ -467,22 +592,25 @@ export class Engine {
     }
   }
 
-  /** First unit at/above the viewport top: the element whose position tells us how far content shifted. */
-  private pickScrollAnchor(chunk: [Paragraph, string][]): { el: Element; top: number } | null {
-    if (window.scrollY <= 0) return null;
-    let best: Element | null = null;
-    let bestTop = Infinity;
-    for (const [p] of chunk) {
+  /** Sample a non-fixed element currently visible in the viewport so offscreen-above insertions keep the reading line steady. */
+  private captureScrollAnchor(chunk: [Paragraph, string][]): { el: Element; top: number } | null {
+    if (window.scrollY <= 0 || document.hidden) return null;
+    const affectsViewport = chunk.some(([p]) => {
       const el = p.anchor.nodeType === Node.ELEMENT_NODE ? (p.anchor as Element) : p.anchor.parentElement;
-      // Iframe documents scroll separately; their rects are not in the top viewport's coordinates
-      if (!el || el.ownerDocument !== document || !el.isConnected) continue;
-      const top = el.getBoundingClientRect().top;
-      if (top >= 0 && top < bestTop) {
-        best = el;
-        bestTop = top;
+      return !!el && el.ownerDocument === document && el.isConnected && el.getBoundingClientRect().top < window.innerHeight;
+    });
+    if (!affectsViewport) return null;
+    const x = Math.floor(window.innerWidth / 2);
+    for (const ratio of [0.25, 0.5, 0.15]) {
+      const hit = document.elementFromPoint(x, Math.floor(window.innerHeight * ratio));
+      if (hit && hit !== document.body && hit !== document.documentElement && !isOurs(hit) && !isInsideOurs(hit)) {
+        const pos = getComputedStyle(hit).position;
+        if (pos !== 'fixed' && pos !== 'sticky') {
+          return { el: hit, top: hit.getBoundingClientRect().top };
+        }
       }
     }
-    return best ? { el: best, top: bestTop } : null;
+    return null;
   }
 
   // ---------- dynamic rescan ----------
@@ -504,21 +632,29 @@ export class Engine {
 
   private rescan(containers: Set<Element>): void {
     if (!this.active) return;
-    if (location.href !== this.lastUrl) {
-      this.lastUrl = location.href;
+    const route = routeKey(location.href);
+    if (route !== this.lastRoute) {
+      this.lastRoute = route;
+      const prevRule = JSON.stringify(this.rule);
       this.updateSettings(this.settings); // re-match rules for the current URL
-      this.scanRoot(document.body);
-      this.cleanup();
+      // If updateSettings didn't already restart due to a rule change, scan the new route view
+      if (this.active && JSON.stringify(this.rule) === prevRule && document.body) {
+        this.scanRoot(document.body);
+        this.cleanup();
+      }
       return;
     }
-    // Drop containers nested in others, then walk up to block boundaries
-    const list = Array.from(containers).filter((c) => c.isConnected);
-    const roots = new Set<Element>();
+    // Drop containers nested in others or inside skip/atomic ancestors, then walk up to block boundaries
     const ctx = this.freshCtx();
+    const list = Array.from(containers).filter(
+      (c) => c.isConnected && !isOurs(c) && !isInsideOurs(c) && !isBlockedByAncestor(c, ctx),
+    );
+    const roots = new Set<Element>();
     for (let c of list) {
       if (list.some((other) => other !== c && other.contains(c))) continue;
-      while (c.parentElement && c !== document.body && !isBlock(c, ctx)) c = c.parentElement;
-      roots.add(c);
+      const body = c.ownerDocument?.body ?? document.body;
+      while (c.parentElement && c !== body && !isBlock(c, ctx)) c = c.parentElement;
+      if (!isBlockedByAncestor(c, ctx)) roots.add(c);
     }
     for (const r of roots) {
       const immediate = r.ownerDocument !== document;

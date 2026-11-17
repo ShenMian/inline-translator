@@ -32,6 +32,18 @@ const skipped = [
   '&amp;', // HTML entity
   'document.pdf', // filename
   'Node.js', // filename
+  'd167ae3', // git short SHA
+  '550e8400e29b41d4a716446655440000', // hex digest
+  '.github/workflows', // dot-prefixed relative path
+  'src/core/walk', // multi-segment relative path
+  '100px', // CSS length
+  '1.5rem', // CSS rem
+  '240ms', // duration
+  '12.5 MB', // byte size
+  '#typescript', // hashtag
+  '$AAPL', // cashtag
+  '2026-11-17', // ISO date
+  '2026-11-17T19:07:03Z', // ISO timestamp
   '12345', // pure number
   'x', // single char
 ];
@@ -44,6 +56,10 @@ const kept = [
   '# Introduction', // heading with a space is prose
   'Read the document.pdf file for details.', // filename inside prose
   'Version v1.2.3 was released today.', // version inside prose
+  'Wait 240ms before retrying.', // unit inside prose
+  'effaced', // real [a-f] English word, not a hex SHA
+  'acceded', // real [a-f] English word, not a hex SHA
+  'Input/Output', // prose slash pair, not a file path
   'This is a test.',
   'U.S.', // not a filename
   'Mixed language text should still translate.',
