@@ -152,6 +152,10 @@ def run_fixture(page):
         "fixture: heading translation inline right",
         page.eval_on_selector("#title", "el => { const w = el.querySelector('.ilt-t'); if (!w) return false; const a = el.getBoundingClientRect(), b = w.getBoundingClientRect(); return getComputedStyle(w).display === 'inline' && b.top < a.top + 10 && b.left > a.left; }"),
     )
+    check(
+        "fixture: long heading inside article header breaks to new line",
+        page.eval_on_selector("#long-title", "el => { const w = el.querySelector('.ilt-t'); return !!w && getComputedStyle(w).display === 'block'; }"),
+    )
     check("fixture: table cell translated", page.eval_on_selector("#td1", "el => !!el.querySelector('.ilt-t')"))
     check("fixture: block inside anchor", page.eval_on_selector("#badnest", "el => !!el.querySelector('.ilt-t')"))
     check(

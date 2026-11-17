@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <title>Inline Translator fixture</title>
 <style>
-  body { font: 16px/1.6 system-ui, sans-serif; max-width: 800px; margin: 24px auto; padding: 0 16px; }
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 800px; margin: 16px auto; padding: 0 16px; }
+  p { margin: 8px 0; }
   .hidden { display: none; }
   .contents { display: contents; }
   .flex { display: flex; gap: 8px; }
@@ -20,6 +21,7 @@
 </head>
 <body>
 <h1 id="title">The Quick Brown Fox</h1>
+<article><header><h1 id="long-title" style="font-size:18px;margin:4px 0">Lunar Landing Site Navigator</h1></header></article>
 <p id="p1">Hello <b>world</b>, visit <a href="https://example.com" id="link1">our site</a> for <code>inline code</code> and more.</p>
 <p id="p-link">See <a id="link-dark" href="https://example.com/dark" style="color:rgb(51,51,51);text-decoration:none">dark link</a> and <a id="link-blue" href="https://example.com/blue">blue link</a>.</p>
 <p id="p2">Second paragraph with <span><em>nested <strong>inline</strong> elements</em></span> to test grouping.</p>

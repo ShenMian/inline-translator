@@ -25,10 +25,10 @@ const STYLE_CSS: Record<StyleId, string> = {
   dotted: `.ilt-i{background-image:linear-gradient(to right,#94a3b8 30%,rgba(255,255,255,0) 0%);background-position:bottom;background-size:5px 1px;background-repeat:repeat-x;padding-bottom:3px;}`,
   wavy: `.ilt-i{text-decoration:underline;text-decoration-color:#72ece9;text-decoration-style:wavy;}`,
   highlight: `.ilt-i{background:#ffff00;box-decoration-break:clone;-webkit-box-decoration-break:clone;}`,
-  blockquote: `.ilt-t.ilt-block{display:inline-block;border-left:4px solid #cc3355;padding:4px 0 4px 12px;margin-top:4px;margin-bottom:4px;}`,
-  solidBorder: `.ilt-t.ilt-block{display:inline-block;border:1px solid #94a3b8;padding:6px;margin-top:2px;}.ilt-t.ilt-inline{border:1px solid #94a3b8;padding:2px;}`,
-  paper: `.ilt-t.ilt-block{display:inline-block;margin:8px 0;box-shadow:rgba(0,0,0,.24) 0 3px 8px;padding:16px 32px;}`,
-  background: `.ilt-t.ilt-block{display:inline-block;margin:8px 0;background:rgba(219,175,175,.12);border-radius:4px;padding:12px;}.ilt-t.ilt-inline .ilt-i{background:rgba(219,175,175,.12);padding-left:6px;padding-right:6px;box-decoration-break:clone;-webkit-box-decoration-break:clone;}`,
+  blockquote: `.ilt-t.ilt-block{display:block;width:fit-content;border-left:4px solid #cc3355;padding:4px 0 4px 12px;margin-top:4px;margin-bottom:4px;}`,
+  solidBorder: `.ilt-t.ilt-block{display:block;width:fit-content;border:1px solid #94a3b8;padding:6px;margin-top:2px;}.ilt-t.ilt-inline{border:1px solid #94a3b8;padding:2px;}`,
+  paper: `.ilt-t.ilt-block{display:block;width:fit-content;margin:8px 0;box-shadow:rgba(0,0,0,.24) 0 3px 8px;padding:16px 32px;}`,
+  background: `.ilt-t.ilt-block{display:block;width:fit-content;margin:8px 0;background:rgba(219,175,175,.12);border-radius:4px;padding:12px;}.ilt-t.ilt-inline .ilt-i{background:rgba(219,175,175,.12);padding-left:6px;padding-right:6px;box-decoration-break:clone;-webkit-box-decoration-break:clone;}`,
   dividingLine: `.ilt-t.ilt-block::before{content:"";display:block;max-width:80px;width:10%;border-top:1px dashed #94a3b8;padding-top:8px;}.ilt-t.ilt-inline::before{content:"";border-left:1px dashed #94a3b8;height:16px;max-height:16px;padding-left:8px;}`,
   mask: `.ilt-i{display:inline-block;filter:blur(5px);transition:filter .3s ease;border-radius:10px;}.ilt-i:hover{filter:none;}`,
   opacity: `.ilt-i{display:inline-block;filter:opacity(.1);transition:filter .3s ease;border-radius:10px;}.ilt-i:hover{filter:none;}`,
@@ -98,32 +98,40 @@ function matchSourceStyle(w: HTMLElement, p: Paragraph): void {
 }
 
 /** Label-like units: translation follows inline on the same line to the right of the original,
- *  avoiding block-in-inline-flow stacking; prose paragraphs (including <div> prose!) get their own line. */
-const CHROME_SEL = 'nav,header,footer,aside,[role="navigation"],[role="banner"],[role="contentinfo"]';
+ *  avoiding block-in-inline-flow stacking; longer headings and prose paragraphs get their own line. */
+const ALWAYS_CHROME_SEL = 'nav,aside,[role="navigation"],[role="banner"],[role="contentinfo"]';
+const SECTIONING_CONTENT_SEL = 'article,main,[role="main"],section';
 const FLEX_DISPLAYS = new Set([
   'flex', 'inline-flex', 'grid', 'inline-grid',
   'table-row', 'table-row-group', 'table-header-group', 'table-footer-group',
 ]);
-const INLINE_UI_TAGS = new Set(['A', 'BUTTON', 'LABEL', 'SUMMARY', 'LEGEND', 'OPTION']);
-/** Prose containers keep block translations even when short. */
-const PROSE_TAGS = new Set(['P', 'ARTICLE', 'SECTION', 'BLOCKQUOTE', 'TD', 'DD', 'LI', 'FIGCAPTION']);
+const INLINE_UI_TAGS = new Set(['BUTTON', 'LABEL', 'SUMMARY', 'LEGEND', 'OPTION']);
+/** Dedicated prose paragraphs always stack on a new line so short dialogue/CJK lines keep even rhythm. */
+const PROSE_TAGS = new Set(['P', 'BLOCKQUOTE', 'DD', 'FIGCAPTION']);
 
-/** Walk up across shadow boundaries (closest inside a shadow cannot see light-DOM ancestors). */
+const INLINE_MAX_CHARS = 24;
+const INLINE_MAX_WORDS = 4;
+const INLINE_MAX_CJK = 12;
+
+/** Walk up across shadow boundaries. Per HTML5, <header>/<footer> inside <article>/<main>/<section>
+ *  are sectioning headers rather than site-wide chrome banners. */
 function inChrome(el: Element): boolean {
   let node: Element | null = el;
   while (node) {
-    if (node.closest(CHROME_SEL)) return true;
+    if (node.closest(ALWAYS_CHROME_SEL)) return true;
+    const hf = node.closest('header,footer');
+    if (hf && !hf.parentElement?.closest(SECTIONING_CONTENT_SEL)) return true;
     const root = node.getRootNode();
     node = root.nodeType === Node.DOCUMENT_FRAGMENT_NODE ? (root as ShadowRoot).host : null;
   }
   return false;
 }
 
-function isShortLabelText(text: string): boolean {
-  if (text.includes('\n') || text.length > 36 || /[.!?。！？]$/.test(text)) return false;
+function isShortInlineText(text: string): boolean {
+  if (text.includes('\n') || text.length > INLINE_MAX_CHARS || /[.!?。！？]$/.test(text)) return false;
   const cjk = (text.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g) ?? []).length;
-  if (cjk > 16) return false;
-  return text.trim().split(/\s+/).length <= 6;
+  if (cjk > INLINE_MAX_CJK) return false;
+  return text.trim().split(/\s+/).length <= INLINE_MAX_WORDS;
 }
 
 function isInlineUnit(p: Paragraph, blockSel = '', inlineSel = ''): boolean {
@@ -131,19 +139,12 @@ function isInlineUnit(p: Paragraph, blockSel = '', inlineSel = ''): boolean {
   if (blockSel && safeMatches(r, blockSel)) return false;
   if (inlineSel && safeMatches(r, inlineSel)) return true;
   const tag = tagOf(r);
-  if (
-    /^H[1-6]$/.test(tag) ||
-    r.getAttribute('role') === 'heading' ||
-    INLINE_UI_TAGS.has(tag) ||
-    inChrome(r)
-  ) {
-    return true;
-  }
+  if (INLINE_UI_TAGS.has(tag) || inChrome(r)) return true;
   const win = winOf(r);
   const cs = win.getComputedStyle(r);
   if (FLEX_DISPLAYS.has(cs.display) || INLINE_LEVEL_DISPLAYS.has(cs.display) || cs.whiteSpace === 'nowrap') return true;
   if (PROSE_TAGS.has(tag) || (p.preWhitespace && p.text.includes('\n'))) return false;
-  if (!isShortLabelText(p.text)) return false;
+  if (!isShortInlineText(p.text)) return false;
   return p.nodes.every(
     (n) => n.nodeType === Node.TEXT_NODE || INLINE_LEVEL_DISPLAYS.has(win.getComputedStyle(n as Element).display),
   );
