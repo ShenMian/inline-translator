@@ -516,6 +516,44 @@ def run_only_rule(ctx, page, ext_id):
             return chrome.storage.local.set({ settings: s });
         })"""
     )
+
+    # Floating button vertical drag + persistence + click suppression, and Alt-hover single-paragraph toggle
+    page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+    page.wait_for_selector("[data-ilt-ui]", timeout=15000)
+    btn_box = page.locator("[data-ilt-ui] button.main").bounding_box()
+    cx = btn_box["x"] + btn_box["width"] / 2
+    cy = btn_box["y"] + btn_box["height"] / 2
+    page.mouse.move(cx, cy)
+    page.mouse.down()
+    page.mouse.move(cx, cy - 140, steps=8)
+    page.mouse.up()
+    time.sleep(0.3)
+    dragged_bottom = page.eval_on_selector("[data-ilt-ui]", "el => parseFloat(el.style.bottom)")
+    check(
+        "fixture: floating button drags vertically without triggering toggle",
+        abs(dragged_bottom - 160) <= 4 and count_wrappers(page) == 0,
+        f"bottom={dragged_bottom} wrappers={count_wrappers(page)}",
+    )
+    page.reload(wait_until="networkidle")
+    page.wait_for_selector("[data-ilt-ui]", timeout=15000)
+    time.sleep(0.3)
+    persisted_bottom = page.eval_on_selector("[data-ilt-ui]", "el => parseFloat(el.style.bottom)")
+    check("fixture: floating button vertical position persists across reload", abs(persisted_bottom - dragged_bottom) <= 2, f"persisted={persisted_bottom}")
+    pop.evaluate("() => chrome.storage.local.set({ floatingBottom: 20 })")
+
+    page.bring_to_front()
+    page.hover("#p2")
+    page.keyboard.press("Alt")
+    page.wait_for_selector("#p2 .ilt-t", timeout=15000)
+    check(
+        "fixture: Alt-hover spot-translates only the hovered paragraph",
+        count_wrappers(page) == 1 and page.eval_on_selector("#p2", "el => !!el.querySelector('.ilt-t')"),
+        f"wrappers={count_wrappers(page)}",
+    )
+    page.hover("#p2")
+    page.keyboard.press("Alt")
+    time.sleep(0.2)
+    check("fixture: Alt-hover second tap restores the hovered paragraph", count_wrappers(page) == 0, f"wrappers={count_wrappers(page)}")
     pop.close()
 
 

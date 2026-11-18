@@ -4,7 +4,7 @@ import { joinSelectors, matchRules, type EffectiveRule } from '../lib/rules';
 import type { Settings } from '../lib/settings';
 import { BUILTIN_RULES } from '../rules/builtin';
 import { getService, ServiceError, type TranslateService } from '../services';
-import { getShadow, isBlockedByAncestor, isInsideOurs, isOurs, styleOf, tagOf } from './filter';
+import { getShadow, isBlockedByAncestor, isGroup, isInsideOurs, isOurs, styleOf, tagOf } from './filter';
 import { Watcher } from './observe';
 import { injectStyles, removeWrapper, renderTranslation } from './render';
 import { restore } from './serialize';
@@ -220,6 +220,91 @@ export class Engine {
   destroy(): void {
     this.destroyed = true;
     this.stop();
+    for (const p of this.wrappers) removeWrapper(p);
+    this.wrappers.clear();
+    this.disposeStyles();
+  }
+
+  /** Spot-translate (or toggle off) the single paragraph block under the user's pointer (Alt-hover). */
+  async toggleElement(el: Element): Promise<void> {
+    if (this.destroyed || el.closest('[data-ilt-ui]')) return;
+    for (const p of this.wrappers) {
+      if (p.wrapper?.contains(el)) {
+        removeWrapper(p);
+        this.wrappers.delete(p);
+        for (const n of p.nodes) if (this.nodePara.get(n) === p) this.nodePara.delete(n);
+        return;
+      }
+    }
+    const ctx = this.freshCtx();
+    let cur: Element = isGroup(el) && el.parentElement ? el.parentElement : el;
+    const body = cur.ownerDocument?.body ?? document.body;
+    while (cur.parentElement && cur !== body && !isBlock(cur, ctx)) cur = cur.parentElement;
+    if (cur === body || cur === cur.ownerDocument?.documentElement || isBlockedByAncestor(cur, ctx)) return;
+
+    const existing = Array.from(this.wrappers).filter((p) => p.root === cur && p.wrapper?.isConnected);
+    if (existing.length > 0) {
+      for (const p of existing) {
+        removeWrapper(p);
+        this.wrappers.delete(p);
+        for (const n of p.nodes) if (this.nodePara.get(n) === p) this.nodePara.delete(n);
+      }
+      return;
+    }
+
+    let ps = extractParagraphs(cur, ctx).filter((p) => !isSameLang(p.text, this.settings.targetLang));
+    if (ps.length > 4) {
+      const direct = ps.filter((p) => p.root === cur);
+      ps = direct.length ? direct : [];
+    }
+    if (!ps.length) return;
+
+    const rootNode = cur.getRootNode();
+    if (
+      (rootNode.nodeType === Node.DOCUMENT_NODE || rootNode.nodeType === Node.DOCUMENT_FRAGMENT_NODE) &&
+      !this.styleRoots.has(rootNode as Document | ShadowRoot)
+    ) {
+      this.applyStyles(rootNode as Document | ShadowRoot);
+    }
+
+    const to = this.settings.targetLang;
+    const serviceId = this.service.id;
+    const results = new Array<string>(ps.length).fill('');
+    const missIdx: number[] = [];
+    for (let i = 0; i < ps.length; i++) {
+      const hit = cacheGet(cacheKey(serviceId, to, ps[i]!.rich));
+      if (hit !== undefined) results[i] = hit;
+      else missIdx.push(i);
+    }
+    if (missIdx.length) {
+      try {
+        const fetched = await this.service.translate(
+          missIdx.map((i) => ps[i]!.rich),
+          to,
+        );
+        missIdx.forEach((pIdx, j) => {
+          const tr = fetched[j] ?? '';
+          if (tr) {
+            results[pIdx] = tr;
+            cacheSet(cacheKey(serviceId, to, ps[pIdx]!.rich), tr);
+          }
+        });
+      } catch (e) {
+        console.warn('[ilt] hover translate failed:', e);
+        return;
+      }
+    }
+    if (this.destroyed) return;
+    for (let i = 0; i < ps.length; i++) {
+      const p = ps[i]!;
+      const tr = results[i];
+      if (!tr || !p.anchor.isConnected) continue;
+      const nodes = restore(tr, p.tokens);
+      if (!nodes.length) continue;
+      renderTranslation(p, nodes, to, this.base.blockSel, this.base.inlineSel);
+      this.wrappers.add(p);
+      for (const n of p.nodes) this.nodePara.set(n, p);
+    }
   }
 
   status(): EngineStatus {
@@ -274,7 +359,12 @@ export class Engine {
       inlineSel: joinSelectors(this.rule.inline),
       keepSel: joinSelectors(this.rule.keep),
     };
-    if (!this.active) return;
+    if (!this.active) {
+      if (s.style !== prev.style && this.styleRoots.size) {
+        for (const root of Array.from(this.styleRoots.keys())) this.applyStyles(root);
+      }
+      return;
+    }
     if (retranslate || rulesChanged || siteRuleChanged) {
       this.stop();
       this.start();
