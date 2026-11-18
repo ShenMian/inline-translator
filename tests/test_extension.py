@@ -481,7 +481,38 @@ def run_only_rule(ctx, page, ext_id):
     pop.evaluate(
         """() => chrome.storage.local.get('settings').then(r => {
             const s = r.settings || {};
+            s.customRules = [{ matches: ['*://127.0.0.1*/*'], only: ['#p1', '#p-link', '#p2'] }];
+            s.service = 'edge';
+            return chrome.storage.local.set({ settings: s });
+        })"""
+    )
+    page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+    toggle(page)
+    wait_stable(page, timeout=20, stable=1.2, min_count=3)
+    edge_rich = page.evaluate(
+        """() => {
+            const p1 = document.querySelector('#p1 .ilt-t');
+            const p2 = document.querySelector('#p2 .ilt-t');
+            return {
+                link: !!(p1 && p1.querySelector('a[href="https://example.com"]')),
+                bold: !!(p1 && p1.querySelector('b')),
+                code: !!(p1 && p1.querySelector('code')),
+                nested: !!(p2 && p2.querySelector('em strong')),
+            };
+        }"""
+    )
+    check(
+        "fixture: Edge service preserves rich-text links, bold, code, and nested inline tags",
+        all(edge_rich.values()),
+        str(edge_rich),
+    )
+    page.screenshot(path=str(SHOTS / "fixture-edge.png"))
+    toggle(page)
+    pop.evaluate(
+        """() => chrome.storage.local.get('settings').then(r => {
+            const s = r.settings || {};
             s.customRules = [];
+            s.service = 'google';
             return chrome.storage.local.set({ settings: s });
         })"""
     )

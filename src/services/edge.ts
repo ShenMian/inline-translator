@@ -1,8 +1,8 @@
 import { proxyFetch } from '../lib/messaging';
-import { richToPlain } from '../core/serialize';
+import { decodeEdgeRich, encodeEdgeRich } from './codec';
 import { parseRetryAfter, retryableStatus, ServiceError, ShapeError, type TranslateService } from './types';
 
-/** Edge internal unauthenticated endpoint; body is a plain string array, natively batched. */
+/** Edge internal unauthenticated endpoint; body is a string array, batched with <b i=N> tag round-trip. */
 const ENDPOINT = 'https://edge.microsoft.com/translate/translatetext';
 
 const LANG_MAP: Record<string, string> = {
@@ -20,7 +20,7 @@ async function ask(texts: string[], target: string, signal?: AbortSignal): Promi
       url,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(texts.map(richToPlain)),
+      body: JSON.stringify(texts.map(encodeEdgeRich)),
     },
     signal,
   );
@@ -35,7 +35,7 @@ async function ask(texts: string[], target: string, signal?: AbortSignal): Promi
   if (!Array.isArray(data) || data.length !== texts.length) {
     throw new ShapeError('Edge: unexpected response shape');
   }
-  return data.map((d) => d.translations?.[0]?.text ?? '');
+  return data.map((d) => decodeEdgeRich(d.translations?.[0]?.text ?? ''));
 }
 
 export const edge: TranslateService = {
