@@ -242,6 +242,36 @@ def run_fixture(page):
         "fixture: font wrapper immune to host span CSS",
         page.eval_on_selector("#span-trap", "el => { const w = el.querySelector('.ilt-t'); return !!w && w.tagName === 'FONT' && getComputedStyle(w).display === 'block'; }"),
     )
+    rtl_info = page.evaluate(
+        """() => {
+            const hi = document.querySelector('#rtl-heading .ilt-i');
+            const hw = document.querySelector('#rtl-heading .ilt-t');
+            const pw = document.querySelector('#rtl-para .ilt-t');
+            if (!hi || !hw || !pw) return null;
+            const hcs = getComputedStyle(hw), pcs = getComputedStyle(pw);
+            return {
+                hInnerDir: hi.getAttribute('dir'),
+                hMarginRight: parseFloat(hcs.marginRight),
+                hMarginLeft: parseFloat(hcs.marginLeft),
+                pDir: pw.getAttribute('dir'),
+                pBidi: pcs.unicodeBidi,
+                pAlign: pcs.textAlign,
+            };
+        }"""
+    )
+    check(
+        "fixture: RTL source isolates LTR translation direction and alignment",
+        bool(
+            rtl_info
+            and rtl_info["hInnerDir"] == "ltr"
+            and rtl_info["hMarginRight"] > 0
+            and rtl_info["hMarginLeft"] == 0
+            and rtl_info["pDir"] == "ltr"
+            and rtl_info["pBidi"] == "isolate"
+            and rtl_info["pAlign"] == "start"
+        ),
+        str(rtl_info),
+    )
     check("fixture: long paragraph translated", page.eval_on_selector("#long", "el => { const w = el.querySelector('.ilt-t'); return !!w && w.textContent.length > 500; }"))
     check("fixture: button text translated inline", page.eval_on_selector("#add-btn", "el => { const w = el.querySelector('.ilt-t'); return !!w && getComputedStyle(w).display === 'inline'; }"))
     check("fixture: flex button child span translated inline", page.eval_on_selector("#flex-btn", "el => { const w = el.querySelector('.ilt-t'); return !!w && getComputedStyle(w).display === 'inline'; }"))
@@ -316,7 +346,9 @@ def run_fixture(page):
     check("fixture: text change triggers retranslation", changed, f"{before[:20]} -> {after[:20]}")
 
     page.evaluate("window.scrollTo(0, 0)")
-    page.screenshot(path=str(SHOTS / "fixture-translated.png"), clip={"x": 0, "y": 0, "width": 1000, "height": 2100})
+    page.screenshot(path=str(SHOTS / "fixture-top.png"))
+    page.eval_on_selector("#rtl-heading", "el => el.scrollIntoView({ block: 'center' })")
+    page.screenshot(path=str(SHOTS / "fixture-rtl.png"))
 
     # Restore
     toggle(page)

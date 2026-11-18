@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <title>Inline Translator fixture</title>
 <style>
-  body { font: 16px/1.6 system-ui, sans-serif; max-width: 800px; margin: 16px auto; padding: 0 16px; }
-  p { margin: 8px 0; }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 800px; margin: 12px auto; padding: 0 16px; }
+  p, h1, h3, pre, ul { margin: 4px 0; }
   .hidden { display: none; }
   .contents { display: contents; }
   .flex { display: flex; gap: 8px; }
@@ -67,6 +67,8 @@ console.log(x);</pre>
 <div id="prewrap-div" style="white-space:pre-wrap">First line of a multi-line social post.
 Second line of a multi-line social post.</div>
 <p id="span-trap">Host rules hiding child spans must not hide translations.</p>
+<h3 id="rtl-heading" dir="rtl">عنوان عربي</h3>
+<p id="rtl-para" dir="rtl" style="text-align:right">مرحبا بالعالم، هذا نص عربي لاختبار عزل الاتجاه في الفقرات المترجمة.</p>
 <details id="details-reveal"><summary>Expand hidden section</summary><p id="details-p">Accordion body revealed dynamically when expanded by the reader.</p></details>
 <div id="inner-scroller" style="position:relative;height:80px;overflow-y:auto;border:1px solid #ccc;padding:4px">
   <p id="sc-top">Visible paragraph at the top of the inner scroll container.</p>

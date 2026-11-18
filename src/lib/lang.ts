@@ -124,3 +124,11 @@ export function pageLang(): string {
   const attr = document.documentElement.getAttribute('lang');
   return attr ? langFamily(attr) : '';
 }
+
+const RTL_LANGS = new Set(['ar', 'he', 'iw', 'fa', 'ur', 'ug', 'dv', 'yi', 'ji', 'ps', 'sd', 'ckb']);
+
+/** Writing direction for a BCP-47 language tag. */
+export function dirForLang(lang: string): 'rtl' | 'ltr' {
+  const base = lang.toLowerCase().split(/[-_]/)[0] ?? '';
+  return RTL_LANGS.has(base) ? 'rtl' : 'ltr';
+}

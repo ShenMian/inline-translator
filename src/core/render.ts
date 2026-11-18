@@ -1,3 +1,4 @@
+import { dirForLang } from '../lib/lang';
 import type { StyleId } from '../lib/settings';
 import { isInsideOurs, isOurs, MARK, safeMatches, tagOf, winOf, WRAPPER_CLASS } from './filter';
 import type { Paragraph } from './types';
@@ -8,9 +9,10 @@ export { isInsideOurs, isOurs, MARK, WRAPPER_CLASS };
 // Translation typography matches the original: all text properties inherit; no dimming or
 // weight resets. Decorative themes are opt-in.
 const BASE_CSS = `
-.ilt-t{display:inline;font:inherit;color:inherit;letter-spacing:inherit;word-spacing:inherit;text-align:inherit;text-transform:inherit;text-indent:inherit;border:0;background:none;float:none;position:static;width:auto;height:auto;margin:0;padding:0;white-space:inherit;overflow-wrap:break-word;}
+.ilt-t{display:inline;unicode-bidi:isolate;font:inherit;color:inherit;letter-spacing:inherit;word-spacing:inherit;text-align:inherit;text-transform:inherit;text-indent:inherit;border:0;background:none;float:none;position:static;width:auto;height:auto;margin:0;padding:0;white-space:inherit;overflow-wrap:break-word;}
+.ilt-i{unicode-bidi:isolate;}
 .ilt-t.ilt-block{display:block;margin-top:.3em;}
-.ilt-t.ilt-inline{margin-left:.45em;}
+.ilt-t.ilt-inline{margin-inline-start:.45em;}
 .ilt-t img,.ilt-t svg{display:inline;max-width:100%;vertical-align:middle;}
 [data-ilt-unclamp]{-webkit-line-clamp:unset!important;line-clamp:unset!important;max-height:none!important;}
 `;
@@ -25,11 +27,11 @@ const STYLE_CSS: Record<StyleId, string> = {
   dotted: `.ilt-i{background-image:linear-gradient(to right,#94a3b8 30%,rgba(255,255,255,0) 0%);background-position:bottom;background-size:5px 1px;background-repeat:repeat-x;padding-bottom:3px;}`,
   wavy: `.ilt-i{text-decoration:underline;text-decoration-color:#72ece9;text-decoration-style:wavy;}`,
   highlight: `.ilt-i{background:#ffff00;box-decoration-break:clone;-webkit-box-decoration-break:clone;}`,
-  blockquote: `.ilt-t.ilt-block{display:block;width:fit-content;border-left:4px solid #cc3355;padding:4px 0 4px 12px;margin-top:4px;margin-bottom:4px;}`,
+  blockquote: `.ilt-t.ilt-block{display:block;width:fit-content;border-inline-start:4px solid #cc3355;padding-block:4px;padding-inline-start:12px;margin-top:4px;margin-bottom:4px;}`,
   solidBorder: `.ilt-t.ilt-block{display:block;width:fit-content;border:1px solid #94a3b8;padding:6px;margin-top:2px;}.ilt-t.ilt-inline{border:1px solid #94a3b8;padding:2px;}`,
   paper: `.ilt-t.ilt-block{display:block;width:fit-content;margin:8px 0;box-shadow:rgba(0,0,0,.24) 0 3px 8px;padding:16px 32px;}`,
   background: `.ilt-t.ilt-block{display:block;width:fit-content;margin:8px 0;background:rgba(219,175,175,.12);border-radius:4px;padding:12px;}.ilt-t.ilt-inline .ilt-i{background:rgba(219,175,175,.12);padding-left:6px;padding-right:6px;box-decoration-break:clone;-webkit-box-decoration-break:clone;}`,
-  dividingLine: `.ilt-t.ilt-block::before{content:"";display:block;max-width:80px;width:10%;border-top:1px dashed #94a3b8;padding-top:8px;}.ilt-t.ilt-inline::before{content:"";border-left:1px dashed #94a3b8;height:16px;max-height:16px;padding-left:8px;}`,
+  dividingLine: `.ilt-t.ilt-block::before{content:"";display:block;max-width:80px;width:10%;border-top:1px dashed #94a3b8;padding-top:8px;}.ilt-t.ilt-inline::before{content:"";border-inline-start:1px dashed #94a3b8;height:16px;max-height:16px;padding-inline-start:8px;}`,
   mask: `.ilt-i{display:inline-block;filter:blur(5px);transition:filter .3s ease;border-radius:10px;}.ilt-i:hover{filter:none;}`,
   opacity: `.ilt-i{display:inline-block;filter:opacity(.1);transition:filter .3s ease;border-radius:10px;}.ilt-i:hover{filter:none;}`,
   weakening: `.ilt-t{opacity:.618;}`,
@@ -188,15 +190,32 @@ export function renderTranslation(p: Paragraph, nodes: Node[], lang: string, blo
   w.setAttribute('translate', 'no');
   w.setAttribute('lang', lang);
   (w as unknown as Record<string, unknown>)[MARK] = true;
-  if (winOf(p.root).getComputedStyle(p.root).whiteSpace === 'pre') w.style.whiteSpace = 'pre-wrap';
-  // Inline inner element: text-level themes fragment per line even on block paragraphs
+  const dir = dirForLang(lang);
+  const rootCs = winOf(p.root).getComputedStyle(p.root);
+  if (rootCs.whiteSpace === 'pre') w.style.whiteSpace = 'pre-wrap';
+  // Inline inner element: text-level themes fragment per line even on block paragraphs,
+  // and dir + unicode-bidi:isolate keep mixed LTR/RTL runs from scrambling surrounding flow.
   const inner = doc.createElement('font');
   inner.className = 'ilt-i';
+  inner.setAttribute('dir', dir);
   inner.append(...nodes);
   w.append(inner);
   matchSourceStyle(w, p);
   const inline = isInlineUnit(p, blockSel, inlineSel);
-  w.classList.add(inline ? 'ilt-inline' : 'ilt-block');
+  if (inline) {
+    w.classList.add('ilt-inline');
+  } else {
+    w.classList.add('ilt-block');
+    w.setAttribute('dir', dir);
+    if (rootCs.direction !== dir) {
+      const ta = w.style.textAlign || rootCs.textAlign;
+      if (ta === 'left' || ta === 'right' || ta === 'start') {
+        w.style.textAlign = 'start';
+        if (dir === 'rtl') w.style.marginLeft = 'auto';
+        else w.style.marginRight = 'auto';
+      }
+    }
+  }
   unclampAncestors(p);
   parent.insertBefore(w, p.anchor.nextSibling);
   p.wrapper = w;

@@ -1,5 +1,5 @@
 // Unit checks for language detection: Latin languages must not be conflated with English.
-import { detectLang, isSameLang, langFamily } from '../src/lib/lang.ts';
+import { detectLang, dirForLang, isSameLang, langFamily } from '../src/lib/lang.ts';
 
 let pass = 0;
 let fail = 0;
@@ -46,6 +46,10 @@ check('Traditional not skipped for zh-CN target', !isSameLang('這是一個繁�
 check('langFamily zh-CN -> zh-Hans', langFamily('zh-CN') === 'zh-Hans', langFamily('zh-CN'));
 check('langFamily zh-TW -> zh-Hant', langFamily('zh-TW') === 'zh-Hant', langFamily('zh-TW'));
 check('langFamily zh -> zh', langFamily('zh') === 'zh', langFamily('zh'));
+check('dirForLang ar -> rtl', dirForLang('ar') === 'rtl');
+check('dirForLang he-IL -> rtl', dirForLang('he-IL') === 'rtl');
+check('dirForLang fa -> rtl', dirForLang('fa') === 'rtl');
+check('dirForLang zh-CN -> ltr', dirForLang('zh-CN') === 'ltr');
 
 console.log(`\n${pass}/${pass + fail} passed`);
 if (fail) throw new Error(`${fail} language detection checks failed`);
