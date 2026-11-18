@@ -13,6 +13,20 @@ A lean inline web page translator for Chrome / Edge / Firefox (MV3).
 - **Services**: Google / Edge built-in endpoints or any OpenAI-compatible API.
 - **Controls**: Curated + custom site rules, floating button, Alt+A, context menu, popup, per-site auto-translate memory.
 
+## Build
+
+```sh
+npm install
+
+# Unpacked production build
+npm run build            # Chrome / Edge
+npm run build:firefox    # Firefox
+
+# Package zip archives
+npm run zip              # Chrome / Edge
+npm run zip:firefox      # Firefox
+```
+
 ## AI Disclosure
 
 This project is developed entirely with LLM assistance, and no human code review has been performed.
