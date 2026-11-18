@@ -13,6 +13,12 @@ A lean inline web page translator for Chrome / Edge / Firefox (MV3).
 - **Services**: Google / Edge built-in endpoints or any OpenAI-compatible API.
 - **Controls**: Curated + custom site rules, floating button, Alt+A, context menu, popup, per-site auto-translate memory.
 
+## Screenshot
+
+<p align="center">
+  <img src="docs/inline-translation.png" alt="Inline translation on MDN" width="80%" />
+</p>
+
 ## Build
 
 ```sh
