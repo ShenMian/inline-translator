@@ -1,7 +1,12 @@
 import type { WalkContext } from './types';
 
 export const WRAPPER_CLASS = 'ilt-t';
+export const GROUP_CLASS = 'ilt-g';
 export const MARK = '__ilt__';
+
+export function isGroup(node: Node | null | undefined): boolean {
+  return !!node && node.nodeType === Node.ELEMENT_NODE && (node as Element).classList.contains(GROUP_CLASS);
+}
 
 export function isOurs(node: Node): boolean {
   if (node.nodeType !== Node.ELEMENT_NODE) return false;

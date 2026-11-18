@@ -1,6 +1,6 @@
 import { dirForLang } from '../lib/lang';
 import type { StyleId } from '../lib/settings';
-import { isInsideOurs, isOurs, MARK, safeMatches, tagOf, winOf, WRAPPER_CLASS } from './filter';
+import { GROUP_CLASS, isInsideOurs, isOurs, MARK, safeMatches, tagOf, winOf, WRAPPER_CLASS } from './filter';
 import type { Paragraph } from './types';
 import { INLINE_LEVEL_DISPLAYS } from './walk';
 
@@ -10,6 +10,7 @@ export { isInsideOurs, isOurs, MARK, WRAPPER_CLASS };
 // weight resets. Decorative themes are opt-in.
 const BASE_CSS = `
 .ilt-t{display:inline;unicode-bidi:isolate;font:inherit;color:inherit;letter-spacing:inherit;word-spacing:inherit;text-align:inherit;text-transform:inherit;text-indent:inherit;border:0;background:none;float:none;position:static;width:auto;height:auto;margin:0;padding:0;white-space:inherit;overflow-wrap:break-word;}
+.ilt-g{display:inline;font:inherit;color:inherit;}
 .ilt-i{unicode-bidi:isolate;}
 .ilt-t.ilt-block{display:block;margin-top:.3em;}
 .ilt-t.ilt-inline{margin-inline-start:.45em;}
@@ -180,6 +181,27 @@ function unclampAncestors(p: Paragraph): void {
   }
 }
 
+function needsSlotGroup(p: Paragraph, parent: Node): parent is Element {
+  if (parent.nodeType !== Node.ELEMENT_NODE) return false;
+  const el = parent as Element;
+  if (el.classList.contains(GROUP_CLASS)) return false;
+  if (!p.nodes.every((n) => n.parentNode === el)) return false;
+  const cs = winOf(el).getComputedStyle(el);
+  const disp = cs.display;
+  const isFlex = disp === 'flex' || disp === 'inline-flex';
+  const isGrid = disp === 'grid' || disp === 'inline-grid';
+  if (!isFlex && !isGrid) return false;
+  if (isFlex && cs.flexDirection.startsWith('column')) return true;
+  if (isGrid || /space-(between|around|evenly)/.test(cs.justifyContent)) {
+    const inRun = new Set(p.nodes);
+    for (const c of el.childNodes) {
+      if (inRun.has(c) || isOurs(c)) continue;
+      if (c.nodeType === Node.ELEMENT_NODE || /\S/.test(c.nodeValue ?? '')) return true;
+    }
+  }
+  return false;
+}
+
 export function renderTranslation(p: Paragraph, nodes: Node[], lang: string, blockSel = '', inlineSel = ''): void {
   removeWrapper(p);
   const parent = p.anchor.parentNode;
@@ -224,13 +246,29 @@ export function renderTranslation(p: Paragraph, nodes: Node[], lang: string, blo
     }
   }
   unclampAncestors(p);
-  parent.insertBefore(w, p.anchor.nextSibling);
+  if (inline && needsSlotGroup(p, parent)) {
+    const g = doc.createElement('font');
+    g.className = GROUP_CLASS;
+    parent.insertBefore(g, p.nodes[0]!);
+    for (const n of p.nodes) g.appendChild(n);
+    g.appendChild(w);
+    p.group = g;
+  } else {
+    parent.insertBefore(w, p.anchor.nextSibling);
+  }
   p.wrapper = w;
 }
 
 export function removeWrapper(p: Paragraph): void {
   p.wrapper?.remove();
   p.wrapper = undefined;
+  if (p.group) {
+    const g = p.group;
+    p.group = undefined;
+    if (g.parentNode) {
+      g.replaceWith(...Array.from(g.childNodes).filter((n) => !isOurs(n)));
+    }
+  }
   if (p.unclamped) {
     for (const el of p.unclamped) {
       if (!el.querySelector(`.${WRAPPER_CLASS}`)) el.removeAttribute('data-ilt-unclamp');

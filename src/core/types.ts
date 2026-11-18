@@ -21,6 +21,7 @@ export interface Paragraph {
   hash: string;
   preWhitespace?: boolean;
   wrapper?: HTMLElement;
+  group?: HTMLElement;
   unclamped?: Element[];
 }
 

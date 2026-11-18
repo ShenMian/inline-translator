@@ -148,6 +148,35 @@ def run_fixture(page):
         "fixture: flex direct text inline",
         page.eval_on_selector("#flexdirect", "el => { const w = el.querySelector('.ilt-t'); if (!w) return false; const a = el.getBoundingClientRect(), b = w.getBoundingClientRect(); return b.top < a.top + 10 && b.left > a.left; }"),
     )
+    slot_info = page.evaluate(
+        """() => {
+            const fb = document.getElementById('flex-between');
+            const fbw = fb && fb.querySelector('.ilt-t');
+            const fbv = document.getElementById('fb-val');
+            const gb = document.getElementById('grid-bare');
+            const gbw = gb && gb.querySelector('.ilt-t');
+            const gbv = document.getElementById('gb-val');
+            if (!fbw || !fbv || !gbw || !gbv) return null;
+            return {
+                fbChildren: fb.children.length,
+                fbTransLeft: fbw.getBoundingClientRect().left,
+                fbMid: (fb.getBoundingClientRect().left + fb.getBoundingClientRect().right) / 2,
+                gbChildren: gb.children.length,
+                gbSameRow: Math.abs(gbw.getBoundingClientRect().top - gbv.getBoundingClientRect().top) < 8,
+            };
+        }"""
+    )
+    check(
+        "fixture: bare text in flex space-between and grid keeps single layout slot",
+        bool(
+            slot_info
+            and slot_info["fbChildren"] == 2
+            and slot_info["fbTransLeft"] < slot_info["fbMid"]
+            and slot_info["gbChildren"] == 2
+            and slot_info["gbSameRow"]
+        ),
+        str(slot_info),
+    )
     check(
         "fixture: heading translation inline right",
         page.eval_on_selector("#title", "el => { const w = el.querySelector('.ilt-t'); if (!w) return false; const a = el.getBoundingClientRect(), b = w.getBoundingClientRect(); return getComputedStyle(w).display === 'inline' && b.top < a.top + 10 && b.left > a.left; }"),
@@ -365,13 +394,19 @@ def run_fixture(page):
 
     page.evaluate("window.scrollTo(0, 0)")
     page.screenshot(path=str(SHOTS / "fixture-top.png"))
+    page.eval_on_selector("#flex-between", "el => el.scrollIntoView({ block: 'center' })")
+    page.screenshot(path=str(SHOTS / "fixture-flex.png"))
     page.eval_on_selector("#rtl-heading", "el => el.scrollIntoView({ block: 'center' })")
     page.screenshot(path=str(SHOTS / "fixture-rtl.png"))
 
     # Restore
     toggle(page)
     time.sleep(0.5)
-    check("fixture: no residue after restore", count_wrappers(page) == 0, f"count={count_wrappers(page)}")
+    check(
+        "fixture: no residue after restore",
+        count_wrappers(page) == 0 and page.eval_on_selector_all(".ilt-g", "els => els.length") == 0,
+        f"count={count_wrappers(page)}",
+    )
     check("fixture: line-clamp attribute cleaned up after restore", page.eval_on_selector("#clamped-p", "el => !el.hasAttribute('data-ilt-unclamp')"))
 
     page.screenshot(path=str(SHOTS / "fixture.png"), full_page=True)

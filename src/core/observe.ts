@@ -1,4 +1,4 @@
-import { ATOMIC_TAGS, isInsideOurs, isOurs, tagOf } from './filter';
+import { ATOMIC_TAGS, isGroup, isInsideOurs, isOurs, tagOf } from './filter';
 import { WRAP_TAGS } from './serialize';
 
 /**
@@ -56,8 +56,11 @@ export class Watcher {
         }
         const targetEl = m.target.nodeType === Node.ELEMENT_NODE ? (m.target as Element) : m.target.parentElement;
         if (targetEl && (isOurs(targetEl) || isInsideOurs(targetEl))) continue;
+        // Wrapping/unwrapping bare text in <font class="ilt-g"> moves existing nodes without changing content
+        if (Array.from(m.addedNodes).some(isGroup) || Array.from(m.removedNodes).some(isGroup)) continue;
         for (const n of m.addedNodes) {
           if (isOurs(n) || isInsideOurs(n)) continue;
+          if (isGroup(targetEl) && n.nodeType !== Node.ELEMENT_NODE) continue;
           if (n.nodeType === Node.ELEMENT_NODE) {
             dirty.add(n as Element);
           } else if (n.nodeType === Node.TEXT_NODE && targetEl) {
@@ -65,7 +68,7 @@ export class Watcher {
           }
         }
         for (const n of m.removedNodes) {
-          if (isOurs(n) || isInsideOurs(n)) continue;
+          if (isOurs(n) || isInsideOurs(n) || isGroup(n.parentNode)) continue;
           if (
             targetEl &&
             (n.nodeType === Node.TEXT_NODE ||
