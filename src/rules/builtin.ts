@@ -41,6 +41,7 @@ export const BUILTIN_RULES: SiteRule[] = [
   {
     matches: ['*://developer.mozilla.org/*'],
     ignore: ['mdn-user-menu', '.article-actions', '.metadata', 'pre', '.notecard'],
+    css: 'nav.navigation{column-gap:.5rem !important;}nav.menu{flex-wrap:wrap;font-size:.875rem;}.menu__tab{white-space:nowrap;}.menu__tab-button,.menu__tab-link{padding-inline:.3rem !important;}',
   },
   {
     matches: ['*://medium.com/*', '*://*.medium.com/*'],

@@ -243,6 +243,8 @@ def run_fixture(page):
         page.eval_on_selector("#span-trap", "el => { const w = el.querySelector('.ilt-t'); return !!w && w.tagName === 'FONT' && getComputedStyle(w).display === 'block'; }"),
     )
     check("fixture: long paragraph translated", page.eval_on_selector("#long", "el => { const w = el.querySelector('.ilt-t'); return !!w && w.textContent.length > 500; }"))
+    check("fixture: button text translated inline", page.eval_on_selector("#add-btn", "el => { const w = el.querySelector('.ilt-t'); return !!w && getComputedStyle(w).display === 'inline'; }"))
+    check("fixture: flex button child span translated inline", page.eval_on_selector("#flex-btn", "el => { const w = el.querySelector('.ilt-t'); return !!w && getComputedStyle(w).display === 'inline'; }"))
 
     shadow_n = page.eval_on_selector("#shadow-host", "el => el.shadowRoot.querySelectorAll('.ilt-t').length")
     check("fixture: Shadow DOM pierced", shadow_n >= 1, f"count={shadow_n}")
@@ -336,6 +338,11 @@ def mdn_extra(page, name):
     ok = page.evaluate(
         """() => {
             if (!document.querySelector('nav .ilt-t, aside .ilt-t')) return false;
+            const navBtns = [...document.querySelectorAll('.menu__tab-button')].filter(b => /Learn|Tools|About/.test(b.textContent));
+            if (navBtns.length < 3 || !navBtns.every(b => { const w = b.querySelector('.ilt-t'); return !!w && getComputedStyle(w).display === 'inline'; })) return false;
+            const blogTab = document.querySelector('.menu__tab:has(.menu__tab-link)');
+            if (blogTab && blogTab.getBoundingClientRect().height > 45) return false;
+            if (document.documentElement.scrollWidth > window.innerWidth) return false;
             const bar = document.querySelector('.breadcrumbs-bar') || document.querySelector('.breadcrumbs');
             if (bar && bar.getBoundingClientRect().height > 60) return false;
             const h = document.querySelector('h1');

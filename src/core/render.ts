@@ -105,7 +105,8 @@ const FLEX_DISPLAYS = new Set([
   'flex', 'inline-flex', 'grid', 'inline-grid',
   'table-row', 'table-row-group', 'table-header-group', 'table-footer-group',
 ]);
-const INLINE_UI_TAGS = new Set(['BUTTON', 'LABEL', 'SUMMARY', 'LEGEND', 'OPTION']);
+const INLINE_UI_SEL =
+  'button,label,summary,legend,option,[role="button"],[role="tab"],[role="menuitem"],[role="option"],[role="switch"]';
 /** Dedicated prose paragraphs always stack on a new line so short dialogue/CJK lines keep even rhythm. */
 const PROSE_TAGS = new Set(['P', 'BLOCKQUOTE', 'DD', 'FIGCAPTION']);
 
@@ -127,6 +128,16 @@ function inChrome(el: Element): boolean {
   return false;
 }
 
+function inInlineUi(el: Element): boolean {
+  let node: Element | null = el;
+  while (node) {
+    if (node.closest(INLINE_UI_SEL)) return true;
+    const root = node.getRootNode();
+    node = root.nodeType === Node.DOCUMENT_FRAGMENT_NODE ? (root as ShadowRoot).host : null;
+  }
+  return false;
+}
+
 function isShortInlineText(text: string): boolean {
   if (text.includes('\n') || text.length > INLINE_MAX_CHARS || /[.!?。！？]$/.test(text)) return false;
   const cjk = (text.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g) ?? []).length;
@@ -138,8 +149,8 @@ function isInlineUnit(p: Paragraph, blockSel = '', inlineSel = ''): boolean {
   const r = p.root;
   if (blockSel && safeMatches(r, blockSel)) return false;
   if (inlineSel && safeMatches(r, inlineSel)) return true;
+  if (inInlineUi(r) || inChrome(r)) return true;
   const tag = tagOf(r);
-  if (INLINE_UI_TAGS.has(tag) || inChrome(r)) return true;
   const win = winOf(r);
   const cs = win.getComputedStyle(r);
   if (FLEX_DISPLAYS.has(cs.display) || INLINE_LEVEL_DISPLAYS.has(cs.display) || cs.whiteSpace === 'nowrap') return true;

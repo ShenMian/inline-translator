@@ -35,7 +35,7 @@ const DROP_TAGS = new Set([
 export const ATOMIC_TAGS = new Set([
   'CODE', 'KBD', 'SAMP', 'VAR', 'TT', 'SUB', 'SUP',
   'IMG', 'MATH', 'PICTURE', 'CANVAS', 'VIDEO', 'AUDIO', 'EMBED',
-  'INPUT', 'BUTTON', 'SELECT', 'TEXTAREA', 'MAP', 'AREA',
+  'INPUT', 'SELECT', 'TEXTAREA', 'MAP', 'AREA',
 ]);
 
 /** Universal math containers rendered with nested spans/SVGs (KaTeX, MathJax v2/v3, LaTeX). */
@@ -137,6 +137,11 @@ export function isHardSkipped(el: Element, ctx: WalkContext): boolean {
   if (sr && !sr.querySelector('slot')) return true;
   const s = styleOf(el, ctx);
   if (s.display === 'none') {
+    ctx.onHidden?.(el);
+    return true;
+  }
+  const slot = (el as HTMLElement).assignedSlot;
+  if (slot && styleOf(slot, ctx).display === 'none') {
     ctx.onHidden?.(el);
     return true;
   }
