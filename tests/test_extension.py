@@ -152,6 +152,24 @@ def run_fixture(page):
         "fixture: heading translation inline right",
         page.eval_on_selector("#title", "el => { const w = el.querySelector('.ilt-t'); if (!w) return false; const a = el.getBoundingClientRect(), b = w.getBoundingClientRect(); return getComputedStyle(w).display === 'inline' && b.top < a.top + 10 && b.left > a.left; }"),
     )
+    copied_title = page.evaluate(
+        """() => {
+            const h = document.getElementById('title');
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            const range = document.createRange();
+            range.selectNodeContents(h);
+            sel.addRange(range);
+            const s = sel.toString();
+            sel.removeAllRanges();
+            return s;
+        }"""
+    )
+    check(
+        "fixture: inline translation copies with a clean separator space",
+        copied_title.startswith("The Quick Brown Fox ") and not copied_title.startswith("The Quick Brown Fox  ") and len(copied_title) > len("The Quick Brown Fox "),
+        repr(copied_title),
+    )
     check(
         "fixture: long heading inside article header breaks to new line",
         page.eval_on_selector("#long-title", "el => { const w = el.querySelector('.ilt-t'); return !!w && getComputedStyle(w).display === 'block'; }"),

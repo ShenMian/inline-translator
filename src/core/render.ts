@@ -13,6 +13,7 @@ const BASE_CSS = `
 .ilt-i{unicode-bidi:isolate;}
 .ilt-t.ilt-block{display:block;margin-top:.3em;}
 .ilt-t.ilt-inline{margin-inline-start:.45em;}
+.ilt-s{font-size:0;line-height:0;white-space:pre;}
 .ilt-t img,.ilt-t svg{display:inline;max-width:100%;vertical-align:middle;}
 [data-ilt-unclamp]{-webkit-line-clamp:unset!important;line-clamp:unset!important;max-height:none!important;}
 `;
@@ -204,6 +205,12 @@ export function renderTranslation(p: Paragraph, nodes: Node[], lang: string, blo
   const inline = isInlineUnit(p, blockSel, inlineSel);
   if (inline) {
     w.classList.add('ilt-inline');
+    if (!/\s$/.test(p.anchor.textContent ?? '')) {
+      const sep = doc.createElement('font');
+      sep.className = 'ilt-s';
+      sep.textContent = ' ';
+      w.prepend(sep);
+    }
   } else {
     w.classList.add('ilt-block');
     w.setAttribute('dir', dir);
