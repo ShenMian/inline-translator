@@ -1,5 +1,5 @@
 // Unit checks for translation service helpers (tag-safe splitting, Edge tag round-trip, OpenAI JSON parsing).
-import { decodeEdgeRich, encodeEdgeRich, splitLong } from '../src/services/codec.ts';
+import { decodeEdgeRich, encodeEdgeRich, parseOpenAIArray, splitLong } from '../src/services/codec.ts';
 
 let pass = 0;
 let fail = 0;
@@ -45,6 +45,21 @@ check(
   'decodeEdgeRich strips unbalanced <b> tags cleanly on malformed output',
   decodeEdgeRich('Broken <b i=0>unclosed tag text') === 'Broken unclosed tag text',
 );
+
+check(
+  'parseOpenAIArray handles <think>, code fences, and trailing commas',
+  JSON.stringify(parseOpenAIArray('<think>step 1</think>\n```json\n["甲", "乙, ]", ]\n```', 2)) === '["甲","乙, ]"]',
+);
+check(
+  'parseOpenAIArray unwraps json_object translations wrapper',
+  JSON.stringify(parseOpenAIArray('{"translations": ["一", "二"]}', 2)) === '["一","二"]',
+);
+check(
+  'parseOpenAIArray accepts 0-based and 1-based indexed objects even with brackets inside strings',
+  JSON.stringify(parseOpenAIArray('{"0": "参见 [文档]", "1": "完成"}', 2)) === '["参见 [文档]","完成"]' &&
+    JSON.stringify(parseOpenAIArray('{"1": "第一", "2": "第二"}', 2)) === '["第一","第二"]',
+);
+check('parseOpenAIArray rejects mismatched lengths', parseOpenAIArray('["only-one"]', 2) === null);
 
 console.log(`\n${pass}/${pass + fail} passed`);
 if (fail) throw new Error(`${fail} service checks failed`);

@@ -1,5 +1,6 @@
 import { proxyFetch } from '../lib/messaging';
 import type { Settings } from '../lib/settings';
+import { parseOpenAIArray } from './codec';
 import { parseRetryAfter, retryableStatus, ServiceError, ShapeError, type TranslateService } from './types';
 
 const LANG_NAMES: Record<string, string> = {
@@ -22,18 +23,9 @@ const LANG_NAMES: Record<string, string> = {
 };
 
 function parseArray(content: string, expected: number): string[] {
-  // Strip <think>...</think> blocks emitted by reasoning models (DeepSeek-R1, Qwen3, QwQ, Ollama)
-  let s = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) s = fence[1]!.trim();
-  const start = s.indexOf('[');
-  const end = s.lastIndexOf(']');
-  if (start >= 0 && end > start) s = s.slice(start, end + 1);
-  const arr = JSON.parse(s);
-  if (!Array.isArray(arr) || arr.length !== expected) {
-    throw new ShapeError('OpenAI: response array length mismatch');
-  }
-  return arr.map((x) => String(x));
+  const arr = parseOpenAIArray(content, expected);
+  if (!arr) throw new ShapeError('OpenAI: response array length mismatch');
+  return arr;
 }
 
 /** Keep bisection in check: batches are ≤8 units, so three levels isolate a bad item without a request storm. */
