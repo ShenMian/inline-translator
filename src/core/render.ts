@@ -15,6 +15,14 @@ const BASE_CSS = `
 .ilt-t.ilt-block{display:block;margin-top:.3em;}
 .ilt-t.ilt-inline{margin-inline-start:.45em;}
 .ilt-s{font-size:0;line-height:0;white-space:pre;}
+.ilt-p{display:inline-block;box-sizing:border-box;width:.7em;height:.7em;margin-inline-start:.45em;vertical-align:middle;border:.14em solid currentColor;border-top-color:transparent;border-radius:50%;opacity:.5;pointer-events:none;animation:ilt-spin .8s linear infinite;}
+@keyframes ilt-spin{to{transform:rotate(1turn);}}
+@media (prefers-reduced-motion:reduce){.ilt-p{animation:none;border-top-color:currentColor;opacity:.35;}}
+.ilt-p-sk{display:block;margin-top:.3em;}
+.ilt-p-sk.ilt-inline{display:inline-block;margin-top:0;margin-inline-start:.45em;vertical-align:middle;}
+.ilt-p-l{display:block;border-radius:3px;background:linear-gradient(90deg,rgba(128,128,128,.16) 25%,rgba(128,128,128,.32) 37%,rgba(128,128,128,.16) 63%);background-size:400% 100%;animation:ilt-shimmer 1.4s ease infinite;}
+@keyframes ilt-shimmer{0%{background-position:100% 0;}100%{background-position:0 0;}}
+@media (prefers-reduced-motion:reduce){.ilt-p-l{animation:none;}}
 .ilt-t img,.ilt-t svg{display:inline;max-width:100%;vertical-align:middle;}
 [data-ilt-unclamp]{-webkit-line-clamp:unset!important;line-clamp:unset!important;max-height:none!important;}
 `;
@@ -202,6 +210,91 @@ function needsSlotGroup(p: Paragraph, parent: Node): parent is Element {
   return false;
 }
 
+/** Text-less spinner at the translation's future spot while a request is in flight. Carries MARK +
+ *  notranslate so walkers, observers and host translators all leave it alone; no .ilt-t class so
+ *  wrapper counting/typography stay reserved for finished translations. */
+export function renderPending(p: Paragraph): void {
+  if (p.pending?.isConnected) return;
+  const parent = p.anchor.parentNode;
+  if (!parent) return;
+  if (isPendingEl(p.anchor.nextSibling)) return;
+  const doc = parent.ownerDocument ?? document;
+  const el = doc.createElement('font');
+  el.className = 'ilt-p notranslate';
+  el.setAttribute('translate', 'no');
+  el.setAttribute('aria-hidden', 'true');
+  (el as unknown as Record<string, unknown>)[MARK] = true;
+  parent.insertBefore(el, p.anchor.nextSibling);
+  p.pending = el;
+}
+
+function isPendingEl(node: Node | null): boolean {
+  return (
+    !!node &&
+    node.nodeType === Node.ELEMENT_NODE &&
+    ((node as Element).classList.contains('ilt-p') || (node as Element).classList.contains('ilt-p-sk'))
+  );
+}
+
+export interface PendingLine {
+  width: number;
+  height: number;
+}
+
+/** Source line boxes of a paragraph run, merged per visual line: the skeleton reserves exactly the
+ *  space the original occupies, last line partial. Read-only; callers batch reads before writes. */
+export function measureLines(nodes: Node[], anchor: Node): PendingLine[] {
+  const doc = anchor.ownerDocument ?? document;
+  const range = doc.createRange();
+  range.setStartBefore(nodes[0]!);
+  range.setEndAfter(anchor);
+  const rects = Array.from(range.getClientRects()).filter((r) => r.width > 1 && r.height > 1);
+  const merged: { top: number; left: number; right: number; height: number }[] = [];
+  for (const r of rects) {
+    const m = merged.find((x) => Math.abs(x.top - r.top) < 2);
+    if (m) {
+      m.left = Math.min(m.left, r.left);
+      m.right = Math.max(m.right, r.right);
+      m.height = Math.max(m.height, r.height);
+    } else {
+      merged.push({ top: r.top, left: r.left, right: r.right, height: r.height });
+    }
+  }
+  return merged.map((m) => ({ width: m.right - m.left, height: m.height }));
+}
+
+/** Source-size skeleton: one shimmer bar per source line, same widths/line heights. */
+export function renderPendingSkeleton(p: Paragraph, lines: PendingLine[], blockSel = '', inlineSel = ''): void {
+  if (p.pending?.isConnected || !lines.length) return;
+  const parent = p.anchor.parentNode;
+  if (!parent) return;
+  if (isPendingEl(p.anchor.nextSibling)) return;
+  const doc = parent.ownerDocument ?? document;
+  const inline = isInlineUnit(p, blockSel, inlineSel);
+  const w = doc.createElement('font');
+  w.className = `ilt-p-sk notranslate${inline ? ' ilt-inline' : ''}`;
+  w.setAttribute('translate', 'no');
+  w.setAttribute('aria-hidden', 'true');
+  (w as unknown as Record<string, unknown>)[MARK] = true;
+  const use = inline ? lines.slice(0, 1) : lines;
+  use.forEach((l, i) => {
+    const bar = doc.createElement('font');
+    bar.className = 'ilt-p-l';
+    const barH = Math.max(4, Math.round(l.height * 0.62));
+    bar.style.width = `${Math.round(l.width)}px`;
+    bar.style.height = `${barH}px`;
+    bar.style.marginBottom = i === use.length - 1 ? '0px' : `${Math.max(0, Math.round(l.height - barH))}px`;
+    w.append(bar);
+  });
+  parent.insertBefore(w, p.anchor.nextSibling);
+  p.pending = w;
+}
+
+export function removePending(p: Paragraph): void {
+  p.pending?.remove();
+  p.pending = undefined;
+}
+
 export function renderTranslation(p: Paragraph, nodes: Node[], lang: string, blockSel = '', inlineSel = ''): void {
   removeWrapper(p);
   const parent = p.anchor.parentNode;
@@ -260,6 +353,7 @@ export function renderTranslation(p: Paragraph, nodes: Node[], lang: string, blo
 }
 
 export function removeWrapper(p: Paragraph): void {
+  removePending(p);
   p.wrapper?.remove();
   p.wrapper = undefined;
   if (p.group) {

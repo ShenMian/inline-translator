@@ -11,6 +11,9 @@ export const STYLE_IDS = [
 ] as const;
 export type StyleId = (typeof STYLE_IDS)[number];
 
+/** In-flight placeholder shown at the translation's future spot. */
+export type PendingStyle = 'ring' | 'skeleton';
+
 export interface Settings {
   targetLang: string;
   service: ServiceId;
@@ -20,6 +23,7 @@ export interface Settings {
   autoSites: Record<string, boolean>;
   openai: { baseUrl: string; apiKey: string; model: string };
   style: StyleId;
+  pending: PendingStyle;
   /** Floating button visibility */
   floating: boolean;
   customRules: SiteRule[];
@@ -32,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSites: {},
   openai: { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini' },
   style: 'none',
+  pending: 'ring',
   floating: true,
   customRules: [],
 };

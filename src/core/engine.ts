@@ -6,7 +6,7 @@ import { BUILTIN_RULES } from '../rules/builtin';
 import { getService, ServiceError, type TranslateService } from '../services';
 import { getShadow, isBlockedByAncestor, isGroup, isInsideOurs, isOurs, styleOf, tagOf } from './filter';
 import { Watcher } from './observe';
-import { injectStyles, removeWrapper, renderTranslation } from './render';
+import { injectStyles, measureLines, removePending, removeWrapper, renderPending, renderPendingSkeleton, renderTranslation } from './render';
 import { restore } from './serialize';
 import type { Paragraph, Root, WalkContext } from './types';
 import { extractParagraphs, isBlock } from './walk';
@@ -96,6 +96,8 @@ export class Engine {
   /** Pending DOM writes, coalesced into one animation frame (map dedupes repeat results). */
   private renderQueue = new Map<Paragraph, string>();
   private frameCancel: (() => void) | null = null;
+  /** Skeleton indicators waiting for their batched geometry read + insert. */
+  private pendingQueue = new Set<Paragraph>();
 
   constructor(settings: Settings) {
     this.settings = settings;
@@ -214,6 +216,7 @@ export class Engine {
     this.frameCancel?.();
     this.frameCancel = null;
     this.renderQueue.clear();
+    this.pendingQueue.clear();
     this.emitStatus();
   }
 
@@ -242,7 +245,9 @@ export class Engine {
     while (cur.parentElement && cur !== body && !isBlock(cur, ctx)) cur = cur.parentElement;
     if (cur === body || cur === cur.ownerDocument?.documentElement || isBlockedByAncestor(cur, ctx)) return;
 
-    const existing = Array.from(this.wrappers).filter((p) => p.root === cur && p.wrapper?.isConnected);
+    const existing = Array.from(this.wrappers).filter(
+      (p) => p.root === cur && (p.wrapper?.isConnected || p.pending?.isConnected),
+    );
     if (existing.length > 0) {
       for (const p of existing) {
         removeWrapper(p);
@@ -277,6 +282,12 @@ export class Engine {
       else missIdx.push(i);
     }
     if (missIdx.length) {
+      for (const i of missIdx) {
+        const p = ps[i]!;
+        for (const n of p.nodes) this.nodePara.set(n, p);
+        this.showPending(p);
+        this.wrappers.add(p);
+      }
       try {
         const fetched = await this.service.translate(
           missIdx.map((i) => ps[i]!.rich),
@@ -292,6 +303,11 @@ export class Engine {
       } catch (e) {
         console.warn('[ilt] hover translate failed:', e);
         return;
+      } finally {
+        for (const i of missIdx) {
+          removePending(ps[i]!);
+          this.pendingQueue.delete(ps[i]!);
+        }
       }
     }
     if (this.destroyed) return;
@@ -346,6 +362,7 @@ export class Engine {
     const retranslate = this.active && (s.targetLang !== prev.targetLang || s.service !== prev.service || oaChanged);
     const rulesChanged = this.active && JSON.stringify(s.customRules) !== JSON.stringify(prev.customRules);
     const styleChanged = this.active && s.style !== prev.style;
+    const pendingChanged = this.active && s.pending !== prev.pending;
     const nextRule = matchRules(location.href, [...BUILTIN_RULES, ...s.customRules]);
     const siteRuleChanged = this.active && JSON.stringify(nextRule) !== JSON.stringify(this.rule);
     this.settings = s;
@@ -371,6 +388,14 @@ export class Engine {
     } else if (styleChanged) {
       // Swap stylesheets in place; the DOM and the cache stay untouched
       for (const root of Array.from(this.styleRoots.keys())) this.applyStyles(root);
+    }
+    if (pendingChanged) {
+      // Restyle live indicators in place; in-flight requests and results stay untouched
+      for (const p of this.wrappers) {
+        if (!p.pending) continue;
+        removePending(p);
+        this.showPending(p);
+      }
     }
   }
 
@@ -484,7 +509,7 @@ export class Engine {
     if (isSameLang(p.text, this.settings.targetLang)) return;
     const existing = this.nodePara.get(p.anchor);
     if (existing) {
-      if (existing.hash === p.hash && existing.wrapper?.isConnected) return;
+      if (existing.hash === p.hash && (existing.wrapper?.isConnected || existing.pending?.isConnected)) return;
       removeWrapper(existing);
       this.wrappers.delete(existing);
     }
@@ -564,6 +589,8 @@ export class Engine {
     }
     this.queue.push(p);
     this.queueChars += p.rich.length;
+    this.showPending(p);
+    this.wrappers.add(p);
     if (this.queue.length === 1 && this.inflight === 0) this.emitStatus();
     if (!this.firstQueuedAt) this.firstQueuedAt = Date.now();
     if (this.queue.length >= BATCH_ITEMS || this.queueChars >= BATCH_CHARS || Date.now() - this.firstQueuedAt >= BATCH_MAX_WAIT) {
@@ -571,6 +598,46 @@ export class Engine {
     } else if (!this.flushTimer) {
       this.flushTimer = setTimeout(() => this.flush(), BATCH_DELAY);
     }
+  }
+
+  private showPending(p: Paragraph): void {
+    if (this.settings.pending === 'skeleton') {
+      this.pendingQueue.add(p);
+      this.scheduleRenderFlush();
+    } else {
+      renderPending(p);
+    }
+  }
+
+  /** Skeleton geometry forces layout: batch all reads, then all writes, once per frame. */
+  private takePendings(): Paragraph[] {
+    const list: Paragraph[] = [];
+    for (const p of Array.from(this.pendingQueue)) {
+      if (this.nodePara.get(p.anchor) !== p || !p.anchor.isConnected || p.wrapper || p.pending) {
+        this.pendingQueue.delete(p);
+        continue;
+      }
+      list.push(p);
+      if (list.length >= RENDER_CHUNK) break;
+    }
+    for (const p of list) this.pendingQueue.delete(p);
+    return list;
+  }
+
+  private renderPendings(list: Paragraph[]): void {
+    const measured = list.map((p) => [p, measureLines(p.nodes, p.anchor)] as const);
+    for (const [p, lines] of measured) {
+      // Unmeasurable source (hidden mid-flight): the ring needs no geometry
+      if (lines.length) renderPendingSkeleton(p, lines, this.base.blockSel, this.base.inlineSel);
+      else renderPending(p);
+      this.wrappers.add(p);
+    }
+  }
+
+  private flushPendings(): void {
+    if (!this.pendingQueue.size) return;
+    this.renderPendings(this.takePendings());
+    if (this.pendingQueue.size) this.scheduleRenderFlush();
   }
 
   private flush(): void {
@@ -654,6 +721,7 @@ export class Engine {
       }, delay);
       this.retryTimers.add(t);
     } else {
+      removePending(p);
       this.failed.add(p);
     }
     this.emitStatus();
@@ -661,6 +729,7 @@ export class Engine {
 
   private applyResult(p: Paragraph, tr: string): void {
     if (!this.active || !p.anchor.isConnected || this.nodePara.get(p.anchor) !== p) return;
+    removePending(p);
     const nodes = restore(tr, p.tokens);
     if (!nodes.length) return;
     // Skip redundant bilingual echoes when proper nouns / versions translate identically (e.g. "jQuery 4.1.0")
@@ -689,7 +758,9 @@ export class Engine {
   }
 
   private flushRenders(): void {
+    // Spot translation runs while the engine is inactive: its indicators must flush too
     if (!this.active) {
+      this.flushPendings();
       this.renderQueue.clear();
       return;
     }
@@ -699,10 +770,15 @@ export class Engine {
       if (chunk.length >= RENDER_CHUNK) break;
     }
     for (const [p] of chunk) this.renderQueue.delete(p);
+    const pend = this.takePendings();
 
-    const anchor = this.captureScrollAnchor(chunk);
+    // Sample the anchor BEFORE any write: the synchronous skeleton reservation and the async
+    // translation settle must be compensated together in this frame, else the reservation
+    // itself becomes an uncorrected reader jump.
+    const anchor = this.captureScrollAnchor([...chunk.map(([p]) => p), ...pend]);
     // Read before the writes: restoring + inserting invalidates layout anyway
     const before = anchor ? anchor.top : 0;
+    this.renderPendings(pend);
     for (const [p, tr] of chunk) this.applyResult(p, tr);
     if (anchor && anchor.el.isConnected) {
       const delta = anchor.el.getBoundingClientRect().top - before;
@@ -716,7 +792,7 @@ export class Engine {
         window.scrollBy(0, delta);
       }
     }
-    if (this.renderQueue.size) this.scheduleRenderFlush();
+    if (this.renderQueue.size || this.pendingQueue.size) this.scheduleRenderFlush();
   }
 
   private scheduleRenderFlush(): void {
@@ -748,10 +824,11 @@ export class Engine {
   }
 
   /** Sample a non-fixed element currently visible in the viewport (or inner scroll container) so
-   *  offscreen-above insertions keep the reading line steady. */
-  private captureScrollAnchor(chunk: [Paragraph, string][]): { el: Element; top: number; scroller: Element | null } | null {
+   *  offscreen-above insertions keep the reading line steady. Covers both the synchronous
+   *  placeholder reservation and the async translation settle in the same frame. */
+  private captureScrollAnchor(ps: Paragraph[]): { el: Element; top: number; scroller: Element | null } | null {
     if (document.hidden) return null;
-    for (const [p] of chunk) {
+    for (const p of ps) {
       const el = p.anchor.nodeType === Node.ELEMENT_NODE ? (p.anchor as Element) : p.anchor.parentElement;
       if (!el || el.ownerDocument !== document || !el.isConnected) continue;
       const sc = this.findScrolledContainer(el);
@@ -769,7 +846,7 @@ export class Engine {
       }
     }
     if (window.scrollY <= 0) return null;
-    const affectsViewport = chunk.some(([p]) => {
+    const affectsViewport = ps.some((p) => {
       const el = p.anchor.nodeType === Node.ELEMENT_NODE ? (p.anchor as Element) : p.anchor.parentElement;
       return !!el && el.ownerDocument === document && el.isConnected && el.getBoundingClientRect().top < window.innerHeight;
     });
@@ -890,10 +967,10 @@ export class Engine {
     this.cleanup();
   }
 
-  /** Remove orphan translations whose anchor is gone. */
+  /** Remove orphan translations/spinners whose anchor is gone. */
   private cleanup(): void {
     for (const p of this.wrappers) {
-      if (!p.wrapper?.isConnected || !p.anchor.isConnected) {
+      if (!(p.wrapper ?? p.pending)?.isConnected || !p.anchor.isConnected) {
         removeWrapper(p);
         this.wrappers.delete(p);
       }

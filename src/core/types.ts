@@ -21,6 +21,8 @@ export interface Paragraph {
   hash: string;
   preWhitespace?: boolean;
   wrapper?: HTMLElement;
+  /** Transient in-flight spinner shown where the translation will land. */
+  pending?: HTMLElement;
   group?: HTMLElement;
   unclamped?: Element[];
 }

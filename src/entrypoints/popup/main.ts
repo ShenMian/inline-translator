@@ -1,7 +1,8 @@
 import './style.css';
 import { browser } from 'wxt/browser';
-import { STYLE_IDS, loadSettings, saveSettings, type Settings, type StyleId } from '../../lib/settings';
-import { styleCss } from '../../core/render';
+import { STYLE_IDS, loadSettings, saveSettings, type PendingStyle, type Settings, type StyleId } from '../../lib/settings';
+import { measureLines, renderPendingSkeleton, styleCss } from '../../core/render';
+import type { Paragraph } from '../../core/types';
 import type { SiteRule } from '../../lib/rules';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -89,11 +90,34 @@ function renderStylePreview(style: StyleId): void {
   previewSheet.textContent = styleCss(style);
 }
 
+// The indicator preview runs the same renderer as the page, sized to the preview's own line boxes
+function renderPendingPreview(mode: PendingStyle): void {
+  const box = $('pending-preview');
+  box.querySelector('.ilt-p, .ilt-p-sk')?.remove();
+  $('pending-hint').textContent =
+    mode === 'ring'
+      ? 'A quiet ring marks each paragraph in flight; the page grows once, when translations land.'
+      : "The skeleton reserves the original's line sizes; translations of a different length settle twice.";
+  const src = $('pending-src');
+  const txt = src.firstChild!;
+  if (mode === 'ring') {
+    const el = document.createElement('font');
+    el.className = 'ilt-p';
+    src.append(el);
+    return;
+  }
+  const lines = measureLines([txt], txt);
+  const fake = { root: src, nodes: [txt], anchor: txt, text: src.textContent ?? '' } as unknown as Paragraph;
+  renderPendingSkeleton(fake, lines);
+}
+
 function renderForm(): void {
   $<HTMLSelectElement>('lang').value = settings.targetLang;
   $<HTMLSelectElement>('service').value = settings.service;
   $<HTMLSelectElement>('style').value = settings.style;
   renderStylePreview(settings.style);
+  $<HTMLSelectElement>('pending').value = settings.pending;
+  renderPendingPreview(settings.pending);
   $<HTMLInputElement>('oa-base').value = settings.openai.baseUrl;
   $<HTMLInputElement>('oa-key').value = settings.openai.apiKey;
   $<HTMLInputElement>('oa-model').value = settings.openai.model;
@@ -182,6 +206,11 @@ async function init(): Promise<void> {
     const style = (e.target as HTMLSelectElement).value as StyleId;
     renderStylePreview(style);
     void patch({ style });
+  });
+  $<HTMLSelectElement>('pending').addEventListener('change', (e) => {
+    const pending = (e.target as HTMLSelectElement).value as PendingStyle;
+    renderPendingPreview(pending);
+    void patch({ pending });
   });
 
   const oaHandler = () =>
