@@ -455,6 +455,39 @@ def run_fixture(page):
     page.screenshot(path=str(SHOTS / "fixture.png"), full_page=True)
 
 
+def run_only_rule(ctx, page, ext_id):
+    pop = ctx.new_page()
+    pop.goto(f"chrome-extension://{ext_id}/popup.html")
+    pop.wait_for_selector("#rules-text", state="attached")
+    pop.evaluate(
+        """() => chrome.storage.local.get('settings').then(r => {
+            const s = r.settings || {};
+            s.customRules = [{ matches: ['*://127.0.0.1*/*'], only: ['#shell'] }];
+            return chrome.storage.local.set({ settings: s });
+        })"""
+    )
+    page.goto("http://127.0.0.1:8765/", wait_until="networkidle")
+    toggle(page)
+    n = wait_stable(page, timeout=15, stable=1.2)
+    only_ok = page.evaluate(
+        """() => {
+            const shellCount = document.querySelectorAll('#shell .ilt-t').length;
+            const total = document.querySelectorAll('.ilt-t').length;
+            return shellCount === 2 && total === 2 && !document.querySelector('#p1 .ilt-t') && !document.querySelector('#title .ilt-t');
+        }"""
+    )
+    check("fixture: site rule 'only' whitelist restricts translation scope", only_ok, f"count={n}")
+    toggle(page)
+    pop.evaluate(
+        """() => chrome.storage.local.get('settings').then(r => {
+            const s = r.settings || {};
+            s.customRules = [];
+            return chrome.storage.local.set({ settings: s });
+        })"""
+    )
+    pop.close()
+
+
 def run_site(page, name, url, min_count=5, extra=None):
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=45000)
@@ -592,6 +625,7 @@ def main():
         page.goto("about:blank", wait_until="domcontentloaded")
 
         run_fixture(page)
+        run_only_rule(ctx, page, ext_id)
         if "--fixtures-only" not in sys.argv:
             run_site(page, "wikipedia", "https://en.wikipedia.org/wiki/Machine_translation", 20, wiki_extra)
             run_site(page, "hackernews", "https://news.ycombinator.com/", 15, hn_extra)

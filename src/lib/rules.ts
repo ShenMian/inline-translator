@@ -2,6 +2,8 @@
 export interface SiteRule {
   /** URL glob, e.g. "*://*.wikipedia.org/*" */
   matches: string[];
+  /** Optional whitelist selectors: when non-empty, only matching regions are translated */
+  only?: string[];
   /** Extra selectors for regions never to translate */
   ignore?: string[];
   /** Selectors forced to block level */
@@ -15,6 +17,7 @@ export interface SiteRule {
 }
 
 export interface EffectiveRule {
+  only: string[];
   ignore: string[];
   block: string[];
   inline: string[];
@@ -36,9 +39,13 @@ export function globToRegExp(glob: string): RegExp {
 
 /** Merge all matching rules (builtin first, custom last; arrays appended, CSS concatenated). */
 export function matchRules(url: string, rules: SiteRule[]): EffectiveRule {
-  const out: EffectiveRule = { ignore: [], block: [], inline: [], keep: [], css: '' };
+  const out: EffectiveRule = { only: [], ignore: [], block: [], inline: [], keep: [], css: '' };
   for (const r of rules) {
     if (!r?.matches?.some((m) => globToRegExp(m).test(url))) continue;
+    if (r.only !== undefined) {
+      if (r.only.length === 0) out.only = [];
+      else out.only.push(...r.only);
+    }
     if (r.ignore) out.ignore.push(...r.ignore);
     if (r.block) out.block.push(...r.block);
     if (r.inline) out.inline.push(...r.inline);

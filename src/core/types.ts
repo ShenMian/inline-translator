@@ -29,6 +29,7 @@ export type Root = Element | ShadowRoot;
 
 export interface WalkContext {
   rule: EffectiveRule;
+  onlySel: string;
   ignoreSel: string;
   blockSel: string;
   inlineSel: string;

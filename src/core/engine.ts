@@ -103,6 +103,7 @@ export class Engine {
     this.rule = matchRules(location.href, [...BUILTIN_RULES, ...settings.customRules]);
     this.base = {
       rule: this.rule,
+      onlySel: joinSelectors(this.rule.only),
       ignoreSel: joinSelectors(this.rule.ignore),
       blockSel: joinSelectors(this.rule.block),
       inlineSel: joinSelectors(this.rule.inline),
@@ -267,6 +268,7 @@ export class Engine {
     this.rule = nextRule;
     this.base = {
       rule: this.rule,
+      onlySel: joinSelectors(this.rule.only),
       ignoreSel: joinSelectors(this.rule.ignore),
       blockSel: joinSelectors(this.rule.block),
       inlineSel: joinSelectors(this.rule.inline),

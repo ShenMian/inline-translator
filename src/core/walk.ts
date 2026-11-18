@@ -96,7 +96,29 @@ function isInlineAtomic(el: Element, ctx: WalkContext): boolean {
   return isAtomic(el, ctx) || (!isBlock(el, ctx) && !hasBlockDesc(el, ctx) && isInlineKeep(el, ctx));
 }
 
+function isWithinOnly(el: Element, onlySel: string): boolean {
+  if (!onlySel) return true;
+  let cur: Element | null = el;
+  while (cur) {
+    try {
+      if (cur.matches(onlySel) || cur.closest(onlySel)) return true;
+    } catch {
+      return true;
+    }
+    const root = cur.getRootNode();
+    cur = root.nodeType === Node.DOCUMENT_FRAGMENT_NODE ? (root as ShadowRoot).host : null;
+  }
+  return false;
+}
+
 function makeParagraph(root: Element, run: Node[], ctx: WalkContext): Paragraph | null {
+  if (
+    ctx.onlySel &&
+    !isWithinOnly(root, ctx.onlySel) &&
+    !run.some((n) => n.nodeType === Node.ELEMENT_NODE && isWithinOnly(n as Element, ctx.onlySel))
+  ) {
+    return null;
+  }
   if (isPageShell(root, ctx)) return null;
   const ws = styleOf(root, ctx).whiteSpace;
   const preWhitespace = ws === 'pre' || ws === 'pre-wrap' || ws === 'pre-line' || ws === 'break-spaces';
