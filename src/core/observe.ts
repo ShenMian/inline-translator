@@ -11,7 +11,7 @@ export class Watcher {
   private roots = new Set<Node>();
 
   constructor(
-    private onDirty: (containers: Set<Element>) => void,
+    private onDirty: (containers: Set<Element>, textMutated: Set<Element>) => void,
     private onBodySwap: () => void,
   ) {
     this.mo = new MutationObserver((muts) => this.handle(muts));
@@ -44,6 +44,7 @@ export class Watcher {
 
   private handle(muts: MutationRecord[]): void {
     const dirty = new Set<Element>();
+    const textMutated = new Set<Element>();
     let bodySwap = false;
     for (const m of muts) {
       if (m.type === 'childList') {
@@ -65,6 +66,7 @@ export class Watcher {
             dirty.add(n as Element);
           } else if (n.nodeType === Node.TEXT_NODE && targetEl) {
             dirty.add(targetEl);
+            textMutated.add(targetEl);
           }
         }
         for (const n of m.removedNodes) {
@@ -76,10 +78,14 @@ export class Watcher {
                 (WRAP_TAGS.has(tagOf(n as Element)) || ATOMIC_TAGS.has(tagOf(n as Element)))))
           ) {
             dirty.add(targetEl);
+            if (n.nodeType === Node.TEXT_NODE) textMutated.add(targetEl);
           }
         }
       } else if (m.type === 'characterData') {
-        if (!isInsideOurs(m.target) && m.target.parentElement) dirty.add(m.target.parentElement);
+        if (!isInsideOurs(m.target) && m.target.parentElement) {
+          dirty.add(m.target.parentElement);
+          textMutated.add(m.target.parentElement);
+        }
       } else if (m.type === 'attributes' && m.target.nodeType === Node.ELEMENT_NODE) {
         const el = m.target as Element;
         if (isOurs(el) || isInsideOurs(el)) continue;
@@ -96,6 +102,6 @@ export class Watcher {
       this.onBodySwap();
       return;
     }
-    if (dirty.size) this.onDirty(dirty);
+    if (dirty.size) this.onDirty(dirty, textMutated);
   }
 }

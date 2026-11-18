@@ -376,6 +376,49 @@ def run_fixture(page):
     page.wait_for_selector("#added .ilt-t", timeout=15000)
     check("fixture: dynamically added paragraph", True)
 
+    # Streaming text holdoff + ticking short counter guard
+    mid_stream = page.evaluate(
+        """async () => {
+            const dyn = document.getElementById('dynamic');
+            dyn.scrollIntoView({ block: 'center' });
+            const sp = document.createElement('p');
+            sp.id = 'stream-p';
+            sp.textContent = 'Streaming';
+            dyn.appendChild(sp);
+            const chunks = [
+                'Streaming artificial',
+                'Streaming artificial intelligence',
+                'Streaming artificial intelligence response',
+                'Streaming artificial intelligence response settles cleanly.',
+            ];
+            for (const c of chunks) {
+                await new Promise(r => setTimeout(r, 60));
+                sp.firstChild.nodeValue = c;
+            }
+            return !!sp.querySelector('.ilt-t');
+        }"""
+    )
+    check("fixture: streaming text holds off premature partial translation", not mid_stream)
+    page.wait_for_selector("#stream-p .ilt-t", timeout=15000)
+    check("fixture: streaming text translates once settled", True)
+
+    ticker_skipped = page.evaluate(
+        """async () => {
+            const dyn = document.getElementById('dynamic');
+            const tp = document.createElement('p');
+            tp.id = 'ticker-p';
+            tp.textContent = 'Live 19s left';
+            dyn.appendChild(tp);
+            for (const s of ['Live 18s left', 'Live 17s left', 'Live 16s left', 'Live 15s left']) {
+                await new Promise(r => setTimeout(r, 50));
+                tp.firstChild.nodeValue = s;
+            }
+            await new Promise(r => setTimeout(r, 600));
+            return !tp.querySelector('.ilt-t');
+        }"""
+    )
+    check("fixture: rapid short ticking counter skips retranslation churn", ticker_skipped)
+
     # Text change → retranslation (old wrapper removed, new one inserted async; tolerate a brief gap)
     before = page.eval_on_selector("#p1 .ilt-t", "el => el.textContent")
     page.click("#mutate-btn")

@@ -17,6 +17,9 @@ const BATCH_DELAY = 300;
 const BATCH_MAX_WAIT = 1200;
 const MAX_INFLIGHT = 2;
 const RESCAN_DEBOUNCE = 150;
+const STREAM_WINDOW_MS = 1200;
+const STREAM_SETTLE_MS = 700;
+const TICKER_WINDOW_MS = 2000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY = 1200;
 /** Cap DOM work per frame so a cache-warm rescan never blocks input for long. */
@@ -83,6 +86,8 @@ export class Engine {
 
   private dirty = new Set<Element>();
   private dirtyTimer: ReturnType<typeof setTimeout> | null = null;
+  private mutStats = new WeakMap<Element, { times: number[]; lastLen: number }>();
+  private streamTimers = new Map<Element, ReturnType<typeof setTimeout>>();
   private shadowTimer: ReturnType<typeof setTimeout> | null = null;
   private navCleanup: (() => void) | null = null;
   private lastRoute = routeKey(location.href);
@@ -104,7 +109,7 @@ export class Engine {
       keepSel: joinSelectors(this.rule.keep),
     };
     this.watcher = new Watcher(
-      (containers) => this.scheduleRescan(containers),
+      (containers, textMutated) => this.onMutations(containers, textMutated),
       () => this.restart(),
     );
   }
@@ -193,6 +198,8 @@ export class Engine {
     this.flushTimer = null;
     for (const t of this.retryTimers) clearTimeout(t);
     this.retryTimers.clear();
+    for (const t of this.streamTimers.values()) clearTimeout(t);
+    this.streamTimers.clear();
     this.retryScheduled = 0;
     for (const c of this.inflightCtrls) c.abort();
     this.inflightCtrls.clear();
@@ -689,6 +696,57 @@ export class Engine {
   }
 
   // ---------- dynamic rescan ----------
+
+  /** Measure own text length excluding our injected translation wrappers. */
+  private sourceTextLen(el: Element): number {
+    let total = (el.textContent ?? '').length;
+    for (const w of el.querySelectorAll('.ilt-t')) total -= (w.textContent ?? '').length;
+    return Math.max(0, total);
+  }
+
+  /** Filter streaming typewriter updates and ticking clocks/counters before scheduling rescans. */
+  private onMutations(containers: Set<Element>, textMutated: Set<Element>): void {
+    const now = Date.now();
+    const ready = new Set<Element>();
+    for (const el of containers) {
+      if (!textMutated.has(el)) {
+        if (!this.mutStats.has(el)) {
+          this.mutStats.set(el, { times: [now], lastLen: this.sourceTextLen(el) });
+        }
+        ready.add(el);
+        continue;
+      }
+      const len = this.sourceTextLen(el);
+      const prev = this.mutStats.get(el);
+      const times = prev ? prev.times.filter((t) => now - t <= TICKER_WINDOW_MS) : [];
+      const prevLen = prev?.lastLen ?? len;
+      times.push(now);
+      this.mutStats.set(el, { times, lastLen: len });
+
+      // Ticking short countdown / live badge (≥4 mutations in 2s with ~constant short length): skip churn
+      if (times.length >= 4 && len <= 20 && Math.abs(len - prevLen) <= 3) {
+        this.dirty.delete(el);
+        continue;
+      }
+      // Streaming AI / typewriter text (≥3 rapid growing updates in 1.2s): hold off until quiet
+      const recent = times.filter((t) => now - t <= STREAM_WINDOW_MS).length;
+      if (recent >= 3 && len > prevLen) {
+        this.dirty.delete(el);
+        const old = this.streamTimers.get(el);
+        if (old) clearTimeout(old);
+        this.streamTimers.set(
+          el,
+          setTimeout(() => {
+            this.streamTimers.delete(el);
+            if (this.active && el.isConnected) this.rescan(new Set([el]));
+          }, STREAM_SETTLE_MS),
+        );
+        continue;
+      }
+      ready.add(el);
+    }
+    if (ready.size) this.scheduleRescan(ready);
+  }
 
   private scheduleRescan(containers: Set<Element>): void {
     for (const c of containers) this.dirty.add(c);
