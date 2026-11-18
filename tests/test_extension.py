@@ -269,6 +269,31 @@ def run_fixture(page):
     page.wait_for_selector("#details-p .ilt-t", timeout=15000)
     check("fixture: opened details body translated", True)
 
+    # Inner scroll container: lazy below-200% item translates on scroll, and above-fold insertions keep scroll anchor
+    check("fixture: inner scroller top item translated", page.eval_on_selector("#sc-top", "el => !!el.querySelector('.ilt-t')"))
+    check("fixture: inner scroller deep item initially lazy", no_wrapper_after(page, "#sc-bottom"))
+    page.eval_on_selector("#inner-scroller", "sc => { sc.scrollIntoView({ block: 'center' }); sc.scrollTop = sc.scrollHeight; }")
+    page.wait_for_selector("#sc-bottom .ilt-t", state="attached", timeout=15000)
+    page.evaluate(
+        """() => {
+            const sc = document.getElementById('inner-scroller');
+            const tail = document.createElement('div');
+            tail.style.height = '160px';
+            sc.append(tail);
+            const p = document.createElement('p');
+            p.id = 'sc-prepended';
+            p.textContent = 'Newly inserted paragraph right above the inner scroller reading line.';
+            const b = document.getElementById('sc-bottom');
+            b.parentNode.insertBefore(p, b);
+            sc.scrollTop = b.offsetTop - 12;
+        }"""
+    )
+    before_top = page.eval_on_selector("#sc-bottom", "el => el.getBoundingClientRect().top")
+    page.wait_for_selector("#sc-prepended .ilt-t", state="attached", timeout=15000)
+    time.sleep(0.2)
+    after_top = page.eval_on_selector("#sc-bottom", "el => el.getBoundingClientRect().top")
+    check("fixture: inner scroller translates on scroll and anchors position", abs(after_top - before_top) < 6, f"before={before_top:.1f} after={after_top:.1f}")
+
     # Dynamic insertion
     page.click("#add-btn")
     page.wait_for_selector("#added .ilt-t", timeout=15000)
@@ -289,6 +314,9 @@ def run_fixture(page):
             break
         time.sleep(0.4)
     check("fixture: text change triggers retranslation", changed, f"{before[:20]} -> {after[:20]}")
+
+    page.evaluate("window.scrollTo(0, 0)")
+    page.screenshot(path=str(SHOTS / "fixture-translated.png"), clip={"x": 0, "y": 0, "width": 1000, "height": 2100})
 
     # Restore
     toggle(page)

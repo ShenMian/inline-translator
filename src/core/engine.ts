@@ -57,6 +57,7 @@ export class Engine {
   private base: Omit<WalkContext, 'styles' | 'blockDesc' | 'shell' | 'onHidden'>;
   private watcher: Watcher;
   private io: IntersectionObserver | null = null;
+  private scrollerIos = new Map<Element, IntersectionObserver>();
   private ioTargets = new Map<Element, Paragraph[]>();
   private hiddenRo: ResizeObserver | null = null;
   private observedHidden = new Set<Element>();
@@ -135,18 +136,10 @@ export class Engine {
     this.active = true;
     this.lastRoute = routeKey(location.href);
     this.applyStyles(document);
-    this.io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (!e.isIntersecting) continue;
-          const ps = this.ioTargets.get(e.target);
-          this.io?.unobserve(e.target);
-          this.ioTargets.delete(e.target);
-          ps?.forEach((p) => this.enqueue(p));
-        }
-      },
-      { rootMargin: '0px 0px 200% 0px', threshold: 0 },
-    );
+    this.io = new IntersectionObserver((entries) => this.onIntersect(entries, this.io), {
+      rootMargin: '100% 0px 200% 0px',
+      threshold: 0,
+    });
     if (typeof ResizeObserver === 'function') {
       this.hiddenRo = new ResizeObserver((entries) => {
         const revealed = new Set<Element>();
@@ -181,6 +174,8 @@ export class Engine {
     this.nodePara = new WeakMap();
     this.io?.disconnect();
     this.io = null;
+    for (const sio of this.scrollerIos.values()) sio.disconnect();
+    this.scrollerIos.clear();
     this.ioTargets.clear();
     this.hiddenRo?.disconnect();
     this.hiddenRo = null;
@@ -343,6 +338,49 @@ export class Engine {
     return null;
   }
 
+  private onIntersect(entries: IntersectionObserverEntry[], obs: IntersectionObserver | null): void {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const ps = this.ioTargets.get(e.target);
+      obs?.unobserve(e.target);
+      this.ioTargets.delete(e.target);
+      ps?.forEach((p) => this.enqueue(p));
+    }
+  }
+
+  /** Find an enclosing inner scroll container (overflow-y: auto/scroll) so IO rootMargin expands its scrollport. */
+  private findScrollRoot(el: Element, ctx: WalkContext): Element | null {
+    let cur: Element | null = el.parentElement;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      const oy = styleOf(cur, ctx).overflowY;
+      if ((oy === 'auto' || oy === 'scroll' || oy === 'overlay') && cur.clientHeight > 0 && cur.scrollHeight > cur.clientHeight + 4) {
+        return cur;
+      }
+      if (cur.parentElement) {
+        cur = cur.parentElement;
+      } else {
+        const root = cur.getRootNode();
+        cur = root.nodeType === Node.DOCUMENT_FRAGMENT_NODE ? (root as ShadowRoot).host : null;
+      }
+    }
+    return null;
+  }
+
+  private observerFor(target: Element, ctx: WalkContext): IntersectionObserver | null {
+    const scroller = this.findScrollRoot(target, ctx);
+    if (!scroller) return this.io;
+    let sio = this.scrollerIos.get(scroller);
+    if (!sio) {
+      sio = new IntersectionObserver((entries) => this.onIntersect(entries, sio!), {
+        root: scroller,
+        rootMargin: '100% 0px 200% 0px',
+        threshold: 0,
+      });
+      this.scrollerIos.set(scroller, sio);
+    }
+    return sio;
+  }
+
   private register(p: Paragraph, ctx: WalkContext, immediate = false): void {
     if (isSameLang(p.text, this.settings.targetLang)) return;
     const existing = this.nodePara.get(p.anchor);
@@ -365,7 +403,7 @@ export class Engine {
     if (!list) {
       list = [];
       this.ioTargets.set(target, list);
-      this.io?.observe(target);
+      this.observerFor(target, ctx)?.observe(target);
     }
     list.push(p);
   }
@@ -569,9 +607,15 @@ export class Engine {
     for (const [p, tr] of chunk) this.applyResult(p, tr);
     if (anchor && anchor.el.isConnected) {
       const delta = anchor.el.getBoundingClientRect().top - before;
-      // Translations inserted above the viewport grow the page and push the reader down; scroll
-      // back by the same amount. A huge delta means unrelated layout churn, so leave it alone.
-      if (Math.abs(delta) > 1 && Math.abs(delta) < window.innerHeight * 2) window.scrollBy(0, delta);
+      // Translations inserted above the viewport/scroller grow content and push the reader down;
+      // scroll back by the same amount. A huge delta means unrelated layout churn, so leave it alone.
+      if (anchor.scroller) {
+        if (Math.abs(delta) > 1 && Math.abs(delta) < anchor.scroller.clientHeight * 3) {
+          anchor.scroller.scrollTop += delta;
+        }
+      } else if (Math.abs(delta) > 1 && Math.abs(delta) < window.innerHeight * 2) {
+        window.scrollBy(0, delta);
+      }
     }
     if (this.renderQueue.size) this.scheduleRenderFlush();
   }
@@ -592,9 +636,40 @@ export class Engine {
     }
   }
 
-  /** Sample a non-fixed element currently visible in the viewport so offscreen-above insertions keep the reading line steady. */
-  private captureScrollAnchor(chunk: [Paragraph, string][]): { el: Element; top: number } | null {
-    if (window.scrollY <= 0 || document.hidden) return null;
+  private findScrolledContainer(el: Element): Element | null {
+    let cur: Element | null = el.parentElement;
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      if (cur.scrollTop > 0 && cur.scrollHeight > cur.clientHeight) {
+        const oy = getComputedStyle(cur).overflowY;
+        if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') return cur;
+      }
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+
+  /** Sample a non-fixed element currently visible in the viewport (or inner scroll container) so
+   *  offscreen-above insertions keep the reading line steady. */
+  private captureScrollAnchor(chunk: [Paragraph, string][]): { el: Element; top: number; scroller: Element | null } | null {
+    if (document.hidden) return null;
+    for (const [p] of chunk) {
+      const el = p.anchor.nodeType === Node.ELEMENT_NODE ? (p.anchor as Element) : p.anchor.parentElement;
+      if (!el || el.ownerDocument !== document || !el.isConnected) continue;
+      const sc = this.findScrolledContainer(el);
+      if (sc) {
+        const sr = sc.getBoundingClientRect();
+        if (el.getBoundingClientRect().top < sr.bottom) {
+          const x = Math.floor(sr.left + sr.width / 2);
+          for (const ratio of [0.3, 0.5]) {
+            const hit = document.elementFromPoint(x, Math.floor(sr.top + sr.height * ratio));
+            if (hit && sc.contains(hit) && hit !== sc && !isOurs(hit) && !isInsideOurs(hit)) {
+              return { el: hit, top: hit.getBoundingClientRect().top, scroller: sc };
+            }
+          }
+        }
+      }
+    }
+    if (window.scrollY <= 0) return null;
     const affectsViewport = chunk.some(([p]) => {
       const el = p.anchor.nodeType === Node.ELEMENT_NODE ? (p.anchor as Element) : p.anchor.parentElement;
       return !!el && el.ownerDocument === document && el.isConnected && el.getBoundingClientRect().top < window.innerHeight;
@@ -606,7 +681,7 @@ export class Engine {
       if (hit && hit !== document.body && hit !== document.documentElement && !isOurs(hit) && !isInsideOurs(hit)) {
         const pos = getComputedStyle(hit).position;
         if (pos !== 'fixed' && pos !== 'sticky') {
-          return { el: hit, top: hit.getBoundingClientRect().top };
+          return { el: hit, top: hit.getBoundingClientRect().top, scroller: null };
         }
       }
     }
