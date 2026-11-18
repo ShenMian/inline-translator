@@ -410,7 +410,7 @@ def run_fixture(page):
             tp.textContent = 'Live 19s left';
             dyn.appendChild(tp);
             for (const s of ['Live 18s left', 'Live 17s left', 'Live 16s left', 'Live 15s left']) {
-                await new Promise(r => setTimeout(r, 50));
+                await new Promise(r => setTimeout(r, 25));
                 tp.firstChild.nodeValue = s;
             }
             await new Promise(r => setTimeout(r, 600));
