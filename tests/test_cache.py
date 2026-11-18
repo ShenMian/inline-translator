@@ -209,6 +209,24 @@ def main():
         check("D: second tab restored its translation from cache", n5 >= 3, f"count={n5}")
         toggle(tab2)
 
+        # Scenario E: live cross-tab watch sync (already-open tab gets entries without reload)
+        # and clean pagehide (reloading an existing tab after cache clear does not resurrect cleared entries)
+        pop.evaluate("() => chrome.storage.local.remove('cache')")
+        pop.wait_for_function("() => chrome.storage.local.get('cache').then(s => !s.cache)")
+        tab1.reload(wait_until="networkidle")
+        check("E: reloading existing tab after clear does not resurrect cache", cache_size(pop) == 0, f"entries={cache_size(pop)}")
+        live_peer = ctx.new_page()
+        live_peer.goto("http://127.0.0.1:8765/alt.html", wait_until="networkidle")
+        writer = ctx.new_page()
+        writer.goto("http://127.0.0.1:8765/alt.html", wait_until="networkidle")
+        toggle(writer)
+        wait_stable(writer, timeout=30, stable=1.5)
+        time.sleep(1.0)  # let writer persist and watch propagate to live_peer
+        hits_before_peer = MockOpenAI.hits
+        toggle(live_peer)
+        n_peer = wait_stable(live_peer, timeout=30, stable=1.5)
+        check("E: already-open peer tab served from live-synced cache without reload", n_peer >= 3 and MockOpenAI.hits == hits_before_peer, f"count={n_peer} hits={MockOpenAI.hits} was {hits_before_peer}")
+
         ctx.close()
 
     failed = [n for n, ok in RESULTS if not ok]
