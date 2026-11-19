@@ -19,7 +19,8 @@ export interface Paragraph {
   rich: string;
   tokens: Token[];
   hash: string;
-  preWhitespace?: boolean;
+  /** Effective pre-like white-space (root's, or the text carrier's when the root collapses). */
+  preWhitespace?: string;
   wrapper?: HTMLElement;
   /** Transient in-flight spinner shown where the translation will land. */
   pending?: HTMLElement;

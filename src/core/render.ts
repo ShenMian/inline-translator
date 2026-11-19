@@ -2,7 +2,7 @@ import { dirForLang } from '../lib/lang';
 import type { StyleId } from '../lib/settings';
 import { GROUP_CLASS, isInsideOurs, isOurs, MARK, safeMatches, tagOf, winOf, WRAPPER_CLASS } from './filter';
 import type { Paragraph } from './types';
-import { INLINE_LEVEL_DISPLAYS } from './walk';
+import { INLINE_LEVEL_DISPLAYS, textCarrier } from './walk';
 
 export { isInsideOurs, isOurs, MARK, WRAPPER_CLASS };
 
@@ -86,9 +86,9 @@ export function injectStyles(root: Document | ShadowRoot, ruleCss: string, style
   return () => el.remove();
 }
 
-/** When the whole paragraph is one inline element (e.g. <p><span class="x">…</span></p>), the
- *  translation as its sibling cannot inherit that element's own text styles → copy the properties
- *  that differ from its parent. Everything else inherits naturally. */
+/** The run's text styles may live on a descendant of the insertion point (e.g. YouTube's
+ *  <yt-attributed-string><span>…</span></yt-attributed-string> inside a 10px expander div):
+ *  copy the text carrier's properties that differ from the wrapper's inheritance source. */
 const TEXT_PROPS = [
   'font-size', 'font-family', 'font-weight', 'font-style', 'font-variant',
   'line-height', 'letter-spacing', 'word-spacing', 'color',
@@ -96,13 +96,12 @@ const TEXT_PROPS = [
 ];
 
 function matchSourceStyle(w: HTMLElement, p: Paragraph): void {
-  if (p.nodes.length !== 1 || p.anchor.nodeType !== Node.ELEMENT_NODE) return;
-  const el = p.anchor as Element;
-  const parent = el.parentElement;
-  if (!parent) return;
+  const el = textCarrier(p.nodes);
+  const parent = p.anchor.parentNode;
+  if (!el || !parent || parent.nodeType !== Node.ELEMENT_NODE) return;
   const win = winOf(el);
   const cs = win.getComputedStyle(el);
-  const ps = win.getComputedStyle(parent);
+  const ps = win.getComputedStyle(parent as Element);
   for (const prop of TEXT_PROPS) {
     const v = cs.getPropertyValue(prop);
     if (v !== ps.getPropertyValue(prop)) w.style.setProperty(prop, v);
@@ -165,9 +164,10 @@ function isInlineUnit(p: Paragraph, blockSel = '', inlineSel = ''): boolean {
   const tag = tagOf(r);
   const win = winOf(r);
   const cs = win.getComputedStyle(r);
-  if (FLEX_DISPLAYS.has(cs.display) || INLINE_LEVEL_DISPLAYS.has(cs.display) || cs.whiteSpace === 'nowrap') return true;
+  if (FLEX_DISPLAYS.has(cs.display) || cs.whiteSpace === 'nowrap') return true;
   if (PROSE_TAGS.has(tag) || (p.preWhitespace && p.text.includes('\n'))) return false;
   if (!isShortInlineText(p.text)) return false;
+  if (INLINE_LEVEL_DISPLAYS.has(cs.display)) return true;
   return p.nodes.every(
     (n) => n.nodeType === Node.TEXT_NODE || INLINE_LEVEL_DISPLAYS.has(win.getComputedStyle(n as Element).display),
   );
@@ -308,7 +308,7 @@ export function renderTranslation(p: Paragraph, nodes: Node[], lang: string, blo
   (w as unknown as Record<string, unknown>)[MARK] = true;
   const dir = dirForLang(lang);
   const rootCs = winOf(p.root).getComputedStyle(p.root);
-  if (rootCs.whiteSpace === 'pre') w.style.whiteSpace = 'pre-wrap';
+  if (p.preWhitespace) w.style.whiteSpace = p.preWhitespace === 'pre' ? 'pre-wrap' : p.preWhitespace;
   // Inline inner element: text-level themes fragment per line even on block paragraphs,
   // and dir + unicode-bidi:isolate keep mixed LTR/RTL runs from scrambling surrounding flow.
   const inner = doc.createElement('font');

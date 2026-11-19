@@ -33,6 +33,9 @@ export const BUILTIN_RULES: SiteRule[] = [
   {
     matches: ['*://*.youtube.com/*', '*://youtube.com/*'],
     ignore: ['#masthead-container', '#actions', '#menu', '#sponsor-button', 'ytd-watch-metadata #top-row', '.ytp-caption-window-container', '#player', '#guide', '#chips'],
+    // Comment/description text: the attributed string is the prose unit, so translations stack
+    // below it even for short replies instead of appending inline.
+    block: ['#content-text'],
   },
   {
     matches: ['*://stackoverflow.com/*', '*://*.stackexchange.com/*', '*://serverfault.com/*', '*://superuser.com/*'],

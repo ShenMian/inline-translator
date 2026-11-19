@@ -72,6 +72,38 @@ export function hashText(s: string): string {
   return (h >>> 0).toString(36);
 }
 
+/** The element actually carrying the run's text when the run is one element (ignoring layout
+ *  whitespace) wrapped in single-child shells, e.g. YouTube's
+ *  <yt-attributed-string><span class="…PreWrap">text</span></yt-attributed-string>. */
+export function textCarrier(nodes: Node[]): Element | null {
+  let el: Element | null = null;
+  for (const n of nodes) {
+    if (n.nodeType === Node.TEXT_NODE) {
+      if (/\S/.test(n.nodeValue ?? '')) return null;
+      continue;
+    }
+    if (n.nodeType !== Node.ELEMENT_NODE || el) return null;
+    el = n as Element;
+  }
+  while (el) {
+    let child: Element | null = null;
+    for (const c of el.childNodes) {
+      if (c.nodeType === Node.TEXT_NODE) {
+        if (/\S/.test(c.nodeValue ?? '')) return el;
+        continue;
+      }
+      if (c.nodeType !== Node.ELEMENT_NODE || isOurs(c as Element)) continue;
+      if (child) return el;
+      child = c as Element;
+    }
+    if (!child) return el;
+    el = child;
+  }
+  return null;
+}
+
+const PRE_WS = new Set(['pre', 'pre-wrap', 'pre-line', 'break-spaces']);
+
 /** Body-level wrappers that hold the whole page (header/main/nav inside). Direct text runs of
  *  such shells are leaked UI (portaled tooltips/palette help), never article content — except on
  *  minimalist HTML1.0 pages whose <body> holds raw prose directly without semantic chrome. */
@@ -120,13 +152,17 @@ function makeParagraph(root: Element, run: Node[], ctx: WalkContext): Paragraph 
     return null;
   }
   if (isPageShell(root, ctx)) return null;
-  const ws = styleOf(root, ctx).whiteSpace;
-  const preWhitespace = ws === 'pre' || ws === 'pre-wrap' || ws === 'pre-line' || ws === 'break-spaces';
+  let ws = styleOf(root, ctx).whiteSpace;
+  if (!PRE_WS.has(ws)) {
+    const carrier = textCarrier(run);
+    if (carrier) ws = styleOf(carrier, ctx).whiteSpace;
+  }
+  const preWhitespace = PRE_WS.has(ws) ? ws : undefined;
   const { rich, text, tokens } = serializeRun(
     run,
     (el) => isInlineAtomic(el, ctx),
     (el) => shouldSkip(el, ctx),
-    preWhitespace,
+    preWhitespace !== undefined,
   );
   const trimmed = text.trim();
   if (!isValidText(trimmed)) return null;
