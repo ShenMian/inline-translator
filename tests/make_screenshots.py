@@ -404,7 +404,7 @@ def build_shot3_styles(page, pop) -> None:
         page.goto(url, wait_until="load")
         time.sleep(0.3)
         pop.evaluate(
-            "(u) => chrome.tabs.query({url: u + '*'}).then(ts => chrome.tabs.sendMessage(ts[0].id, {type: 'toggle'}))",
+            "(u) => chrome.tabs.query({url: u + '*'}).then(ts => chrome.runtime.sendMessage({type: 'toggle-tab', tabId: ts[0].id}))",
             url,
         )
         page.wait_for_function("() => document.querySelectorAll('.ilt-t').length === 12", timeout=15000)

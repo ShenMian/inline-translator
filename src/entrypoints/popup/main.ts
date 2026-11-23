@@ -192,9 +192,9 @@ async function init(): Promise<void> {
   $<HTMLButtonElement>('toggle').addEventListener('click', async () => {
     if (tabId == null) return;
     try {
-      await browser.tabs.sendMessage(tabId, { type: 'toggle' });
+      await browser.runtime.sendMessage({ type: 'toggle-tab', tabId });
     } catch {
-      /* page not injected (chrome:// etc.) */
+      /* background asleep or tab closed */
     }
     await refreshState();
   });

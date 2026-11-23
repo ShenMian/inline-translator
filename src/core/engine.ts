@@ -134,9 +134,9 @@ export class Engine {
     this.hiddenRo.observe(el);
   }
 
-  toggle(): void {
-    if (this.active) this.stop();
-    else this.start();
+  setActive(on: boolean): void {
+    if (on) this.start();
+    else this.stop();
   }
 
   start(): void {

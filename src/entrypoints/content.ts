@@ -4,6 +4,7 @@ import { Engine, routeKey } from '../core/engine';
 import { getShadow, tagOf } from '../core/filter';
 import { hydrateCache } from '../lib/cache';
 import { langFamily, pageLang } from '../lib/lang';
+import type { ContentMessage } from '../lib/messaging';
 import { loadSettings } from '../lib/settings';
 import { createFloatingButton } from '../ui/floating';
 
@@ -62,7 +63,7 @@ export default defineContentScript({
       if (window.top !== window) return;
       if (show && !floating) {
         floating = createFloatingButton(
-          () => engine.toggle(),
+          () => void browser.runtime.sendMessage({ type: 'toggle-tab' }).catch(() => {}),
           () => engine.retryFailed(),
           () => engine.status(),
           () => shortcut,
@@ -161,10 +162,14 @@ export default defineContentScript({
       engine.destroy();
     });
 
-    browser.runtime.onMessage.addListener((msg: { type?: string }, _sender, sendResponse) => {
+    browser.runtime.onMessage.addListener((msg: ContentMessage, _sender, sendResponse) => {
       switch (msg?.type) {
-        case 'toggle':
-          engine.toggle();
+        case 'collect-state':
+          void browser.runtime.sendMessage({ type: 'state-report', token: msg.token, active: engine.active }).catch(() => {});
+          sendResponse({ active: engine.active });
+          break;
+        case 'set-active':
+          engine.setActive(msg.active);
           sendResponse({ active: engine.active });
           break;
         case 'retry':

@@ -17,7 +17,14 @@ export interface ProxyResponse {
 }
 
 export type ContentMessage =
-  | { type: 'toggle' }
+  /** Any of our contexts asks the background for a tab-wide translate/restore. */
+  | { type: 'toggle-tab'; tabId?: number }
+  /** Background polls every frame before deciding the tab-wide target state. */
+  | { type: 'collect-state'; token: string }
+  /** A frame answers a collect-state poll. */
+  | { type: 'state-report'; token: string; active: boolean }
+  /** Background applies the absolute target state so frames can never end up in opposite phase. */
+  | { type: 'set-active'; active: boolean }
   | { type: 'retry' }
   | { type: 'get-state' }
   | { type: 'settings-changed' };

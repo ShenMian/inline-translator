@@ -1,6 +1,6 @@
 import { defineBackground } from 'wxt/utils/define-background';
 import { browser } from 'wxt/browser';
-import type { ShortcutInfo } from '../lib/messaging';
+import type { ContentMessage, ShortcutInfo } from '../lib/messaging';
 import { getToggleShortcut, openShortcutsPage } from '../lib/shortcut';
 
 interface ProxyMsg {
@@ -38,14 +38,49 @@ async function handleProxy(msg: ProxyMsg) {
 
 async function toggleActiveTab(): Promise<void> {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  if (tab?.id != null) {
-    browser.tabs.sendMessage(tab.id, { type: 'toggle' }).catch(() => {});
+  if (tab?.id != null) await enqueueToggle(tab.id);
+}
+
+/**
+ * Frames auto-start independently (per-frame language/iframe timing), so a raw flip sent to all
+ * of them leaves two groups translating in opposite phase forever. Poll every frame first, then
+ * broadcast one absolute target state.
+ */
+const STATE_POLL_MS = 120;
+const pendingPolls = new Map<string, { anyActive: boolean }>();
+const toggleChains = new Map<number, Promise<void>>();
+
+async function toggleTab(tabId: number): Promise<void> {
+  const token = crypto.randomUUID();
+  const poll = { anyActive: false };
+  pendingPolls.set(token, poll);
+  try {
+    await browser.tabs.sendMessage(tabId, { type: 'collect-state', token }).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, STATE_POLL_MS));
+    await browser.tabs.sendMessage(tabId, { type: 'set-active', active: !poll.anyActive }).catch(() => {});
+  } finally {
+    pendingPolls.delete(token);
   }
+}
+
+/** Serialize per tab so rapid presses each flip exactly once. */
+function enqueueToggle(tabId: number): Promise<void> {
+  const prev = toggleChains.get(tabId) ?? Promise.resolve();
+  const next = prev.then(() => toggleTab(tabId));
+  toggleChains.set(tabId, next);
+  void next.finally(() => {
+    if (toggleChains.get(tabId) === next) toggleChains.delete(tabId);
+  });
+  return next;
 }
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
-    (msg: ProxyMsg | { type: 'proxy-abort'; id: string } | { type: 'get-shortcut' }, _sender, sendResponse) => {
+    (
+      msg: ProxyMsg | { type: 'proxy-abort'; id: string } | { type: 'get-shortcut' } | ContentMessage,
+      sender,
+      sendResponse,
+    ) => {
       if (msg?.type === 'proxy-fetch') {
         handleProxy(msg).then(sendResponse);
         return true;
@@ -57,6 +92,21 @@ export default defineBackground(() => {
       }
       if (msg?.type === 'get-shortcut') {
         getToggleShortcut().then((shortcut): ShortcutInfo => ({ shortcut })).then(sendResponse);
+        return true;
+      }
+      if (msg?.type === 'state-report') {
+        const poll = pendingPolls.get(msg.token);
+        if (poll && msg.active) poll.anyActive = true;
+        sendResponse({});
+        return;
+      }
+      if (msg?.type === 'toggle-tab') {
+        const tabId = msg.tabId ?? sender.tab?.id;
+        const run = tabId != null ? enqueueToggle(tabId) : toggleActiveTab();
+        run.then(
+          () => sendResponse({}),
+          () => sendResponse({}),
+        );
         return true;
       }
     },
@@ -78,8 +128,6 @@ export default defineBackground(() => {
     browser.contextMenus.create({ id: 'ilt-toggle', title: 'Translate / restore page', contexts: ['page'] });
   });
   browser.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === 'ilt-toggle' && tab?.id != null) {
-      browser.tabs.sendMessage(tab.id, { type: 'toggle' }).catch(() => {});
-    }
+    if (info.menuItemId === 'ilt-toggle' && tab?.id != null) void enqueueToggle(tab.id);
   });
 });
