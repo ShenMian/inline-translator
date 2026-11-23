@@ -1,5 +1,7 @@
 import { defineBackground } from 'wxt/utils/define-background';
 import { browser } from 'wxt/browser';
+import type { ShortcutInfo } from '../lib/messaging';
+import { getToggleShortcut, openShortcutsPage } from '../lib/shortcut';
 
 interface ProxyMsg {
   type: 'proxy-fetch';
@@ -42,16 +44,30 @@ async function toggleActiveTab(): Promise<void> {
 }
 
 export default defineBackground(() => {
-  browser.runtime.onMessage.addListener((msg: ProxyMsg | { type: 'proxy-abort'; id: string }, _sender, sendResponse) => {
-    if (msg?.type === 'proxy-fetch') {
-      handleProxy(msg).then(sendResponse);
-      return true;
-    }
-    if (msg?.type === 'proxy-abort') {
-      inflight.get(msg.id)?.abort();
-      inflight.delete(msg.id);
-      sendResponse({});
-    }
+  browser.runtime.onMessage.addListener(
+    (msg: ProxyMsg | { type: 'proxy-abort'; id: string } | { type: 'get-shortcut' }, _sender, sendResponse) => {
+      if (msg?.type === 'proxy-fetch') {
+        handleProxy(msg).then(sendResponse);
+        return true;
+      }
+      if (msg?.type === 'proxy-abort') {
+        inflight.get(msg.id)?.abort();
+        inflight.delete(msg.id);
+        sendResponse({});
+      }
+      if (msg?.type === 'get-shortcut') {
+        getToggleShortcut().then((shortcut): ShortcutInfo => ({ shortcut })).then(sendResponse);
+        return true;
+      }
+    },
+  );
+
+  // A shortcut taken by another extension fails silently at install; point the user at the picker
+  browser.runtime.onInstalled.addListener(({ reason }) => {
+    if (reason !== 'install') return;
+    void getToggleShortcut().then((shortcut) => {
+      if (!shortcut) void openShortcutsPage();
+    });
   });
 
   browser.commands.onCommand.addListener((cmd) => {

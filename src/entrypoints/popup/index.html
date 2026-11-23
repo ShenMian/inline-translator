@@ -8,6 +8,11 @@
 <body class="bg-base-200 p-4 text-[13px] text-base-content">
   <button id="toggle" class="btn btn-primary mb-3 w-full">Translate page</button>
 
+  <div id="shortcut-row" class="mb-2.5 flex items-center justify-between gap-2 text-[11px] leading-tight text-warning" hidden>
+    <span title="Another extension already owns this shortcut — pick a free one">Shortcut taken by another extension</span>
+    <button id="shortcut-fix" class="btn btn-outline btn-warning btn-xs shrink-0">Set shortcut</button>
+  </div>
+
   <div id="fail-row" class="mb-2.5 flex items-center justify-between gap-2 text-xs text-error" hidden>
     <span id="fail-msg" class="truncate"></span>
     <button id="retry" class="btn btn-outline btn-error btn-xs shrink-0">Retry</button>
@@ -85,7 +90,7 @@
     </div>
   </details>
 
-  <footer class="mt-3 text-center text-[11px] text-base-content/60"><kbd class="kbd kbd-sm">Alt+A</kbd> · context menu · floating button</footer>
+  <footer class="mt-3 text-center text-[11px] text-base-content/60"><span id="shortcut-label" hidden><kbd id="shortcut" class="kbd kbd-sm"></kbd> · </span>context menu · floating button</footer>
   <script type="module" src="./main.ts"></script>
 </body>
 

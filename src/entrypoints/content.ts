@@ -56,11 +56,17 @@ export default defineContentScript({
     await hydrateCache();
     const engine = new Engine(settings);
 
+    let shortcut = '';
     let floating: { host: HTMLElement; sync: () => void; destroy: () => void } | null = null;
     const syncFloating = (show: boolean) => {
       if (window.top !== window) return;
       if (show && !floating) {
-        floating = createFloatingButton(() => engine.toggle(), () => engine.retryFailed(), () => engine.status());
+        floating = createFloatingButton(
+          () => engine.toggle(),
+          () => engine.retryFailed(),
+          () => engine.status(),
+          () => shortcut,
+        );
         engine.onStatus = () => floating?.sync();
       } else if (!show && floating) {
         floating.destroy();
@@ -69,6 +75,14 @@ export default defineContentScript({
       }
     };
     syncFloating(settings.floating);
+    // Show the accelerator that is really bound; a conflicting extension may leave the command unassigned
+    void browser.runtime
+      .sendMessage({ type: 'get-shortcut' })
+      .then((info: { shortcut?: string } | undefined) => {
+        shortcut = info?.shortcut ?? '';
+        floating?.sync();
+      })
+      .catch(() => {});
 
     // Alt-hover spot translation: tap bare Alt over any paragraph to translate/restore just that block
     let pointerX = -1;

@@ -2,6 +2,7 @@ import './style.css';
 import { browser } from 'wxt/browser';
 import { STYLE_IDS, loadSettings, saveSettings, type PendingStyle, type Settings, type StyleId } from '../../lib/settings';
 import { measureLines, renderPendingSkeleton, styleCss } from '../../core/render';
+import { openShortcutsPage, getToggleShortcut } from '../../lib/shortcut';
 import type { Paragraph } from '../../core/types';
 import type { SiteRule } from '../../lib/rules';
 
@@ -78,6 +79,17 @@ async function refreshState(): Promise<void> {
   }
   renderToggle();
   renderFail();
+}
+
+async function renderShortcut(): Promise<void> {
+  const shortcut = await getToggleShortcut();
+  $('shortcut').textContent = shortcut;
+  $('shortcut-label').hidden = !shortcut;
+  $('shortcut-row').hidden = !!shortcut;
+  $<HTMLButtonElement>('shortcut-fix').addEventListener('click', () => {
+    void openShortcutsPage();
+    window.close();
+  });
 }
 
 // Live preview reuses the exact CSS injected into pages, so what you see is what you get
@@ -175,6 +187,7 @@ async function init(): Promise<void> {
   }
   await refreshState();
   renderForm();
+  await renderShortcut();
 
   $<HTMLButtonElement>('toggle').addEventListener('click', async () => {
     if (tabId == null) return;

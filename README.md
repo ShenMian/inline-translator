@@ -11,7 +11,7 @@ A lean inline web page translator for Chrome / Edge / Firefox (MV3).
 - **Dynamic content**: Debounced rescans, SPA restarts, Shadow DOM & same-origin iframe piercing.
 - **Efficient**: Viewport-lazy translation, frame-batched rendering that keeps the scroll position, batching, persistent LRU cache.
 - **Services**: Google / Edge built-in endpoints or any OpenAI-compatible API.
-- **Controls**: Curated + custom site rules, floating button, Alt+A, context menu, popup, per-site auto-translate memory.
+- **Controls**: Curated + custom site rules, floating button, Alt+A (rebind it in the browser's extension shortcuts if another extension already owns it), context menu, popup, per-site auto-translate memory.
 
 ## Screenshot
 

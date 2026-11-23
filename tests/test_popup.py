@@ -57,6 +57,10 @@ def main():
         page.goto(f"chrome-extension://{ext_id}/popup.html")
         page.wait_for_selector("#service")
 
+        page.wait_for_function("() => document.getElementById('shortcut').textContent")
+        check("footer shows the bound shortcut", page.inner_text("#shortcut") == "Alt+A", page.inner_text("#shortcut"))
+        check("shortcut warning hidden when bound", page.eval_on_selector("#shortcut-row", "el => el.hidden"))
+
         opts = page.eval_on_selector_all("#service option", "els => els.map(e => e.textContent)")
         check("service options without free wording", opts == ["Google", "Edge", "OpenAI compatible"], str(opts))
 

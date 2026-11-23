@@ -22,6 +22,11 @@ export type ContentMessage =
   | { type: 'get-state' }
   | { type: 'settings-changed' };
 
+/** Content scripts cannot read the commands API, so the background answers with the real binding. */
+export interface ShortcutInfo {
+  shortcut: string;
+}
+
 export async function proxyFetch(req: ProxyRequest, signal?: AbortSignal): Promise<ProxyResponse> {
   if (signal?.aborted) return { ok: false, status: 0, body: '', error: 'aborted' };
   // Unique across tabs/frames: the background controller table is global

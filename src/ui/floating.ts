@@ -58,6 +58,7 @@ export function createFloatingButton(
   onToggle: () => void,
   onRetry: () => void,
   getStatus: () => EngineStatus,
+  getShortcut: () => string,
 ): { host: HTMLElement; sync: () => void; destroy: () => void } {
   const host = document.createElement('div');
   host.setAttribute('data-ilt-ui', '');
@@ -86,7 +87,12 @@ export function createFloatingButton(
 
   const main = document.createElement('button');
   main.className = 'main';
-  main.title = 'Inline Translator: translate / restore (Alt+A · drag vertically)';
+  // The command may be unbound (another extension owns the key), so never promise a shortcut blindly
+  const toggleTitle = () => {
+    const shortcut = getShortcut();
+    return `Inline Translator: translate / restore (${shortcut ? `${shortcut} · ` : ''}drag vertically)`;
+  };
+  main.title = toggleTitle();
   main.setAttribute('aria-label', 'Translate this page');
   // 文: dot + bar on top, crossing 撇/捺 below; a vertical through the bar reads as 丈
   main.append(
@@ -176,7 +182,7 @@ export function createFloatingButton(
     main.classList.toggle('error', configErr);
     main.title = configErr
       ? `Translation failed — check service settings${s.error ? `: ${s.error}` : ''}`
-      : 'Inline Translator: translate / restore (Alt+A · drag vertically)';
+      : toggleTitle();
   };
   main.addEventListener('click', (e) => {
     if (suppressClick) {
