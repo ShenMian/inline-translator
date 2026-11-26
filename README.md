@@ -1,6 +1,6 @@
 # Inline Translator
 
-A lean inline web page translator for Chrome / Edge / Firefox (MV3).
+A lean inline web page translator for Chrome / Edge / Firefox.
 
 ## Features
 
