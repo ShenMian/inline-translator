@@ -145,11 +145,12 @@ function renderForm(): void {
 // Serialize read-modify-write so a later write cannot clobber an earlier field
 let patchQueue: Promise<void> = Promise.resolve();
 function patch(p: Partial<Settings>): Promise<void> {
-  patchQueue = patchQueue.then(async () => {
+  const run = patchQueue.then(async () => {
     settings = await saveSettings(p);
     await notifyContent();
   });
-  return patchQueue;
+  patchQueue = run.catch(() => {});
+  return run;
 }
 
 async function init(): Promise<void> {
