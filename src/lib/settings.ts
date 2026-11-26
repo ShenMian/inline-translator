@@ -36,7 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSites: {},
   openai: { baseUrl: 'https://api.openai.com/v1', apiKey: '', model: 'gpt-4o-mini' },
   style: 'none',
-  pending: 'ring',
+  pending: 'skeleton',
   floating: true,
   customRules: [],
 };
