@@ -1,5 +1,6 @@
 import { storage } from 'wxt/utils/storage';
 import type { EngineStatus } from '../core/engine';
+import { createErrorNotice, errorMessage } from './error-notice';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const DEFAULT_BOTTOM = 20;
@@ -28,7 +29,11 @@ const FLOATING_CSS = `
   .retry.show{display:flex;}
   .retry:hover{filter:brightness(1.08);}
   .retry svg{width:14px;height:14px;}
-  @media (prefers-color-scheme: dark){button{background:#1f2937;color:#e5e7eb;border-color:rgba(255,255,255,.1);}.retry{background:#dc2626;color:#fff;}}
+  .ilt-error{box-sizing:border-box;display:flex;max-width:min(280px,calc(100vw - 40px));padding:8px 10px;border:1px solid rgba(220,38,38,.35);border-radius:8px;background:#fff;color:#b91c1c;box-shadow:0 2px 10px rgba(0,0,0,.12);font:12px/1.4 system-ui,sans-serif;overflow-wrap:anywhere;}
+  .ilt-error[hidden],.ilt-error-retry[hidden]{display:none;}
+  .ilt-error-message{min-width:0;flex:1;}
+  .ilt-error-retry{flex-shrink:0;padding:1px 5px;border:1px solid currentColor;border-radius:5px;background:transparent;color:inherit;font:inherit;font-weight:600;cursor:pointer;}
+  @media (prefers-color-scheme: dark){button{background:#1f2937;color:#e5e7eb;border-color:rgba(255,255,255,.1);}.retry{background:#dc2626;color:#fff;}.ilt-error{background:#1f2937;color:#fca5a5;border-color:rgba(248,113,113,.4);}}
 `;
 
 function buildSvg(strokeWidth: string, paths: string[]): SVGSVGElement {
@@ -55,7 +60,7 @@ function clampBottom(val: number): number {
 /** Floating toggle at right edge (vertically draggable): Shadow DOM isolates styles from the host page.
  *  Built via DOM APIs (no innerHTML) so strict Trusted-Types CSP pages never throw. */
 export function createFloatingButton(
-  onToggle: () => void,
+  onToggle: () => void | Promise<void>,
   onRetry: () => void,
   getStatus: () => EngineStatus,
   getShortcut: () => string,
@@ -104,7 +109,8 @@ export function createFloatingButton(
     ]),
   );
 
-  wrap.append(retry, main);
+  const errorNotice = createErrorNotice(document);
+  wrap.append(errorNotice.root, retry, main);
   shadow.append(style, wrap);
 
   let dragPointerId: number | null = null;
@@ -112,6 +118,7 @@ export function createFloatingButton(
   let startBottom = DEFAULT_BOTTOM;
   let moved = false;
   let suppressClick = false;
+  let actionError = '';
 
   main.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
@@ -172,6 +179,8 @@ export function createFloatingButton(
 
   const sync = () => {
     const s = getStatus();
+    const translationError = s.failed > 0 ? `${s.failed} failed${s.error ? ` — ${s.error}` : ''}` : '';
+    errorNotice.render(actionError ? { message: actionError } : translationError ? { message: translationError } : null);
     main.classList.toggle('active', s.active);
     main.classList.toggle('busy', s.active && s.busy);
     retry.classList.toggle('show', s.active && s.failed > 0 && s.errorRetryable);
@@ -179,20 +188,26 @@ export function createFloatingButton(
     retry.title = s.error ? `Retry ${s.failed} failed — ${s.error}` : `Retry ${s.failed} failed translations`;
     // Config-type failure (e.g. bad API key): flag the main button instead of offering a futile retry
     const configErr = s.active && s.failed > 0 && !s.errorRetryable;
-    main.classList.toggle('error', configErr);
-    main.title = configErr
+    main.classList.toggle('error', !!actionError || configErr);
+    main.title = actionError || (configErr
       ? `Translation failed — check service settings${s.error ? `: ${s.error}` : ''}`
-      : toggleTitle();
+      : toggleTitle());
   };
-  main.addEventListener('click', (e) => {
+  main.addEventListener('click', async (e) => {
     if (suppressClick) {
       suppressClick = false;
       e.preventDefault();
       e.stopPropagation();
       return;
     }
-    onToggle();
+    actionError = '';
     sync();
+    try {
+      await onToggle();
+    } catch (error) {
+      actionError = errorMessage(error);
+      sync();
+    }
   });
   retry.addEventListener('click', () => {
     onRetry();

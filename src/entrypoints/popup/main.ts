@@ -4,7 +4,10 @@ import { STYLE_IDS, loadSettings, saveSettings, type PendingStyle, type Settings
 import { measureLines, renderPendingSkeleton, styleCss } from '../../core/render';
 import { openShortcutsPage, getToggleShortcut } from '../../lib/shortcut';
 import type { Paragraph } from '../../core/types';
+import type { EngineStatus } from '../../core/engine';
 import type { SiteRule } from '../../lib/rules';
+import { requestToggle } from '../../lib/messaging';
+import { createErrorNotice, errorMessage } from '../../ui/error-notice';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -35,14 +38,23 @@ let active = false;
 let failed = 0;
 let lastError = '';
 let errorRetryable = true;
+let pageError = '';
+
+const errorNotice = createErrorNotice(document, () => void retryFailed());
+$('error-mount').append(errorNotice.root);
 
 async function notifyContent(): Promise<void> {
   if (tabId == null) return;
+  let result: { ok?: boolean; error?: string } | undefined;
   try {
-    await browser.tabs.sendMessage(tabId, { type: 'settings-changed' });
+    result = (await browser.tabs.sendMessage(tabId, { type: 'settings-changed' })) as {
+      ok?: boolean;
+      error?: string;
+    };
   } catch {
-    /* page not injected (chrome:// etc.) */
+    return;
   }
+  if (result?.ok === false) throw new Error(result.error || 'The page could not apply the settings.');
 }
 
 function renderToggle(): void {
@@ -52,33 +64,64 @@ function renderToggle(): void {
   btn.classList.toggle('btn-neutral', active);
 }
 
-function renderFail(): void {
-  $('fail-row').hidden = failed === 0;
-  const msg = $('fail-msg');
-  msg.textContent = errorRetryable ? `${failed} failed` : `${failed} failed — ${lastError || 'check service settings'}`;
-  msg.title = lastError;
-  $<HTMLButtonElement>('retry').hidden = !errorRetryable;
+function renderError(): void {
+  const translationError = failed > 0 ? `${failed} failed — ${lastError || 'check service settings'}` : '';
+  errorNotice.render(
+    pageError
+      ? { message: pageError }
+      : translationError
+        ? { message: translationError, retryable: errorRetryable }
+        : null,
+  );
 }
 
 async function refreshState(): Promise<void> {
+  pageError = '';
   if (tabId != null) {
     try {
-      const s = (await browser.tabs.sendMessage(tabId, { type: 'get-state' }, { frameId: 0 })) as {
-        active: boolean;
-        failed?: number;
-        error?: string;
-        errorRetryable?: boolean;
-      };
-      active = !!s?.active;
-      failed = s?.failed ?? 0;
-      lastError = s?.error ?? '';
-      errorRetryable = s?.errorRetryable ?? true;
+      const s = (await browser.tabs.sendMessage(tabId, { type: 'get-state' }, { frameId: 0 })) as EngineStatus;
+      if (!s || typeof s.active !== 'boolean') throw new Error('Invalid page state');
+      active = s.active;
+      failed = s.failed;
+      lastError = s.error;
+      errorRetryable = s.errorRetryable;
     } catch {
       active = false;
+      failed = 0;
+      lastError = '';
+      errorRetryable = true;
+      pageError = 'Inline Translator is not available on this page. Try a regular web page.';
     }
   }
   renderToggle();
-  renderFail();
+  renderError();
+}
+
+async function performPageAction(action: () => Promise<unknown>, fallback: string): Promise<void> {
+  let actionError = '';
+  try {
+    await action();
+  } catch (error) {
+    actionError = errorMessage(error) || fallback;
+  }
+  await refreshState();
+  if (actionError) {
+    pageError = actionError;
+    renderError();
+  }
+}
+
+async function retryFailed(): Promise<void> {
+  const id = tabId;
+  if (id == null) {
+    pageError = 'No active tab to translate.';
+    renderError();
+    return;
+  }
+  await performPageAction(
+    () => browser.tabs.sendMessage(id, { type: 'retry' }),
+    'Could not retry translations. Reload the page and try again.',
+  );
 }
 
 async function renderShortcut(): Promise<void> {
@@ -153,6 +196,13 @@ function patch(p: Partial<Settings>): Promise<void> {
   return run;
 }
 
+function updateSettings(p: Partial<Settings>): void {
+  void patch(p).catch((error) => {
+    pageError = `Could not save settings: ${errorMessage(error)}`;
+    renderError();
+  });
+}
+
 async function init(): Promise<void> {
   settings = await loadSettings();
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -191,44 +241,37 @@ async function init(): Promise<void> {
   await renderShortcut();
 
   $<HTMLButtonElement>('toggle').addEventListener('click', async () => {
-    if (tabId == null) return;
-    try {
-      await browser.runtime.sendMessage({ type: 'toggle-tab', tabId });
-    } catch {
-      /* background asleep or tab closed */
+    if (tabId == null) {
+      pageError = 'No active tab to translate.';
+      renderError();
+      return;
     }
-    await refreshState();
+    const id = tabId;
+    await performPageAction(async () => {
+      const result = await requestToggle(id);
+      if (!result.ok) throw new Error(result.error);
+    }, 'Could not contact Inline Translator. Reload the extension and try again.');
   });
 
-  $<HTMLButtonElement>('retry').addEventListener('click', async () => {
-    if (tabId == null) return;
-    try {
-      await browser.tabs.sendMessage(tabId, { type: 'retry' });
-    } catch {
-      /* page not injected */
-    }
-    await refreshState();
-  });
-
-  $<HTMLSelectElement>('lang').addEventListener('change', (e) => patch({ targetLang: (e.target as HTMLSelectElement).value }));
+  $<HTMLSelectElement>('lang').addEventListener('change', (e) => updateSettings({ targetLang: (e.target as HTMLSelectElement).value }));
   $<HTMLSelectElement>('service').addEventListener('change', (e) => {
     const service = (e.target as HTMLSelectElement).value as Settings['service'];
     $('openai-panel').hidden = service !== 'openai';
-    void patch({ service });
+    updateSettings({ service });
   });
   styleSel.addEventListener('change', (e) => {
     const style = (e.target as HTMLSelectElement).value as StyleId;
     renderStylePreview(style);
-    void patch({ style });
+    updateSettings({ style });
   });
   $<HTMLSelectElement>('pending').addEventListener('change', (e) => {
     const pending = (e.target as HTMLSelectElement).value as PendingStyle;
     renderPendingPreview(pending);
-    void patch({ pending });
+    updateSettings({ pending });
   });
 
   const oaHandler = () =>
-    patch({
+    updateSettings({
       openai: {
         baseUrl: $<HTMLInputElement>('oa-base').value.trim(),
         apiKey: $<HTMLInputElement>('oa-key').value.trim(),
@@ -241,10 +284,10 @@ async function init(): Promise<void> {
 
   $<HTMLInputElement>('auto-site').addEventListener('change', (e) => {
     const on = (e.target as HTMLInputElement).checked;
-    void patch({ autoSites: { ...settings.autoSites, [host]: on } });
+    updateSettings({ autoSites: { ...settings.autoSites, [host]: on } });
   });
-  $<HTMLInputElement>('auto-global').addEventListener('change', (e) => patch({ auto: (e.target as HTMLInputElement).checked }));
-  $<HTMLInputElement>('floating').addEventListener('change', (e) => patch({ floating: (e.target as HTMLInputElement).checked }));
+  $<HTMLInputElement>('auto-global').addEventListener('change', (e) => updateSettings({ auto: (e.target as HTMLInputElement).checked }));
+  $<HTMLInputElement>('floating').addEventListener('change', (e) => updateSettings({ floating: (e.target as HTMLInputElement).checked }));
 
   $<HTMLButtonElement>('rules-save').addEventListener('click', async () => {
     const msg = $('rules-msg');
@@ -259,11 +302,14 @@ async function init(): Promise<void> {
       msg.classList.remove('text-error');
       msg.classList.add('text-success');
     } catch (e) {
-      msg.textContent = `Invalid rules: ${e instanceof Error ? e.message : e}`;
+      msg.textContent = `Rules not saved: ${errorMessage(e)}`;
       msg.classList.remove('text-success');
       msg.classList.add('text-error');
     }
   });
 }
 
-void init();
+void init().catch((error) => {
+  pageError = `Could not open Inline Translator: ${errorMessage(error)}`;
+  renderError();
+});

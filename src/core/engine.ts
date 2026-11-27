@@ -677,6 +677,8 @@ export class Engine {
           if (!p) return;
           // Empty result = this unit failed while its siblings may have succeeded; retry it alone
           if (!tr) {
+            this.lastError = 'Translation service returned an empty result.';
+            this.lastErrorRetryable = true;
             this.handleItemFailure(p, true);
             return;
           }
@@ -684,7 +686,11 @@ export class Engine {
           this.scheduleRender(p, tr);
         });
         // A short response leaves the tail unaddressed; retry those units instead of dropping them
-        for (let i = results.length; i < batch.length; i++) this.handleItemFailure(batch[i]!, true);
+        for (let i = results.length; i < batch.length; i++) {
+          this.lastError = 'Translation service returned fewer results than requested.';
+          this.lastErrorRetryable = true;
+          this.handleItemFailure(batch[i]!, true);
+        }
       })
       .catch((e) => {
         // Aborts come from stop(): no user-visible failure to report
@@ -727,11 +733,28 @@ export class Engine {
     this.emitStatus();
   }
 
+  private failResult(p: Paragraph, message: string): void {
+    this.lastError = message;
+    this.lastErrorRetryable = false;
+    this.failed.add(p);
+    this.attempts.delete(p);
+    this.emitStatus();
+  }
+
   private applyResult(p: Paragraph, tr: string): void {
     if (!this.active || !p.anchor.isConnected || this.nodePara.get(p.anchor) !== p) return;
     removePending(p);
-    const nodes = restore(tr, p.tokens);
-    if (!nodes.length) return;
+    let nodes: Node[];
+    try {
+      nodes = restore(tr, p.tokens);
+    } catch (error) {
+      this.failResult(p, `Could not restore translation: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (!nodes.length) {
+      this.failResult(p, 'Translation service returned no readable content.');
+      return;
+    }
     // Skip redundant bilingual echoes when proper nouns / versions translate identically (e.g. "jQuery 4.1.0")
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
     const outText = norm(nodes.map((n) => n.textContent ?? '').join(''));
@@ -741,7 +764,13 @@ export class Engine {
       this.attempts.delete(p);
       return;
     }
-    renderTranslation(p, nodes, this.settings.targetLang, this.base.blockSel, this.base.inlineSel);
+    try {
+      renderTranslation(p, nodes, this.settings.targetLang, this.base.blockSel, this.base.inlineSel);
+    } catch (error) {
+      removeWrapper(p);
+      this.failResult(p, `Could not display translation: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
     this.wrappers.add(p);
     this.failed.delete(p);
     this.attempts.delete(p);

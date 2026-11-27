@@ -1,6 +1,6 @@
 import { defineBackground } from 'wxt/utils/define-background';
 import { browser } from 'wxt/browser';
-import type { ContentMessage, ShortcutInfo } from '../lib/messaging';
+import type { ContentMessage, ShortcutInfo, ToggleResponse } from '../lib/messaging';
 import { getToggleShortcut, openShortcutsPage } from '../lib/shortcut';
 
 interface ProxyMsg {
@@ -36,9 +36,10 @@ async function handleProxy(msg: ProxyMsg) {
   }
 }
 
-async function toggleActiveTab(): Promise<void> {
+async function toggleActiveTab(): Promise<ToggleResponse> {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  if (tab?.id != null) await enqueueToggle(tab.id);
+  if (tab?.id == null) return { ok: false, error: 'No active tab to translate.' };
+  return enqueueToggle(tab.id);
 }
 
 /**
@@ -48,24 +49,29 @@ async function toggleActiveTab(): Promise<void> {
  */
 const STATE_POLL_MS = 120;
 const pendingPolls = new Map<string, { anyActive: boolean }>();
-const toggleChains = new Map<number, Promise<void>>();
+const toggleChains = new Map<number, Promise<ToggleResponse>>();
 
-async function toggleTab(tabId: number): Promise<void> {
+async function toggleTab(tabId: number): Promise<ToggleResponse> {
   const token = crypto.randomUUID();
   const poll = { anyActive: false };
   pendingPolls.set(token, poll);
   try {
     await browser.tabs.sendMessage(tabId, { type: 'collect-state', token }).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, STATE_POLL_MS));
-    await browser.tabs.sendMessage(tabId, { type: 'set-active', active: !poll.anyActive }).catch(() => {});
+    try {
+      await browser.tabs.sendMessage(tabId, { type: 'set-active', active: !poll.anyActive });
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Inline Translator is not available on this page. Try a regular web page.' };
+    }
   } finally {
     pendingPolls.delete(token);
   }
 }
 
 /** Serialize per tab so rapid presses each flip exactly once. */
-function enqueueToggle(tabId: number): Promise<void> {
-  const prev = toggleChains.get(tabId) ?? Promise.resolve();
+function enqueueToggle(tabId: number): Promise<ToggleResponse> {
+  const prev = toggleChains.get(tabId) ?? Promise.resolve({ ok: true } as const);
   const next = prev.then(() => toggleTab(tabId));
   toggleChains.set(tabId, next);
   void next.finally(() => {
@@ -104,8 +110,8 @@ export default defineBackground(() => {
         const tabId = msg.tabId ?? sender.tab?.id;
         const run = tabId != null ? enqueueToggle(tabId) : toggleActiveTab();
         run.then(
-          () => sendResponse({}),
-          () => sendResponse({}),
+          (result) => sendResponse(result),
+          (error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }),
         );
         return true;
       }

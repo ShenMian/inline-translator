@@ -106,9 +106,11 @@ def floating_state(page):
         """el => {
             const m = el.shadowRoot.querySelector('.main');
             const r = el.shadowRoot.querySelector('.retry');
+            const n = el.shadowRoot.querySelector('.ilt-error');
             return { active: m.classList.contains('active'), busy: m.classList.contains('busy'),
                      error: m.classList.contains('error'),
-                     retryShow: r.classList.contains('show'), count: r.querySelector('.count').textContent };
+                     retryShow: r.classList.contains('show'), count: r.querySelector('.count').textContent,
+                     noticeHidden: n.hidden, notice: n.querySelector('.ilt-error-message').textContent };
         }""",
     )
 
@@ -206,6 +208,7 @@ def main():
                 break
             time.sleep(0.4)
         check("B: retry button appears on failure", st.get("retryShow") and int(st.get("count", "0")) > 0, str(st))
+        check("B: error details are visible", not st.get("noticeHidden") and "OpenAI 500" in st.get("notice", ""), str(st))
         check("B: spinner stops after exhausting retries", not st.get("busy"), str(st))
         page.locator("[data-ilt-ui] button.retry").click()
         time.sleep(0.4)
@@ -227,6 +230,7 @@ def main():
                 break
             time.sleep(0.3)
         check("C: config error flagged on main button", st.get("error") and int(st.get("count", "0")) > 0, str(st))
+        check("C: config error details are visible", not st.get("noticeHidden") and "OpenAI 401" in st.get("notice", ""), str(st))
         check("C: no futile retry button for 401", not st.get("retryShow"), str(st))
         check("C: non-retryable settles without backoff", not st.get("busy"), str(st))
         toggle(page)

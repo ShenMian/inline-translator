@@ -4,7 +4,7 @@ import { Engine, routeKey } from '../core/engine';
 import { getShadow, tagOf } from '../core/filter';
 import { hydrateCache } from '../lib/cache';
 import { langFamily, pageLang } from '../lib/lang';
-import type { ContentMessage } from '../lib/messaging';
+import { requestToggle, type ContentMessage } from '../lib/messaging';
 import { loadSettings } from '../lib/settings';
 import { createFloatingButton } from '../ui/floating';
 
@@ -63,7 +63,10 @@ export default defineContentScript({
       if (window.top !== window) return;
       if (show && !floating) {
         floating = createFloatingButton(
-          () => void browser.runtime.sendMessage({ type: 'toggle-tab' }).catch(() => {}),
+          async () => {
+            const result = await requestToggle();
+            if (!result.ok) throw new Error(result.error);
+          },
           () => engine.retryFailed(),
           () => engine.status(),
           () => shortcut,
@@ -180,12 +183,16 @@ export default defineContentScript({
           sendResponse({ ...engine.status(), host: location.hostname });
           break;
         case 'settings-changed':
-          void loadSettings().then((s) => {
-            settings = s;
-            engine.updateSettings(s);
-            syncFloating(s.floating);
-            sendResponse({ active: engine.active });
-          });
+          void loadSettings()
+            .then((s) => {
+              settings = s;
+              engine.updateSettings(s);
+              syncFloating(s.floating);
+              sendResponse({ ok: true });
+            })
+            .catch((error) => {
+              sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+            });
           return true;
       }
     });

@@ -16,6 +16,16 @@ export interface ProxyResponse {
   retryAfter?: string | null;
 }
 
+export type ToggleResponse = { ok: true } | { ok: false; error: string };
+
+export async function requestToggle(tabId?: number): Promise<ToggleResponse> {
+  const result = (await browser.runtime.sendMessage({ type: 'toggle-tab', tabId })) as ToggleResponse | undefined;
+  if (!result || typeof result.ok !== 'boolean') {
+    return { ok: false, error: 'Inline Translator background is not responding. Reload the extension and try again.' };
+  }
+  return result;
+}
+
 export type ContentMessage =
   /** Any of our contexts asks the background for a tab-wide translate/restore. */
   | { type: 'toggle-tab'; tabId?: number }
@@ -43,7 +53,11 @@ export async function proxyFetch(req: ProxyRequest, signal?: AbortSignal): Promi
   };
   signal?.addEventListener('abort', onAbort, { once: true });
   try {
-    return (await browser.runtime.sendMessage({ type: 'proxy-fetch', id, ...req })) as ProxyResponse;
+    const result = (await browser.runtime.sendMessage({ type: 'proxy-fetch', id, ...req })) as ProxyResponse | undefined;
+    if (!result || typeof result.ok !== 'boolean') {
+      return { ok: false, status: 0, body: '', error: 'Inline Translator background is not responding.' };
+    }
+    return result;
   } catch (e) {
     return { ok: false, status: 0, body: '', error: String(e) };
   } finally {

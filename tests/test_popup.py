@@ -56,6 +56,53 @@ def main():
         page = ctx.new_page()
         page.goto(f"chrome-extension://{ext_id}/popup.html")
         page.wait_for_selector("#service")
+        page.wait_for_selector("#error-mount .ilt-error", state="visible")
+        check(
+            "unsupported page error is visible",
+            "not available" in page.inner_text("#error-mount .ilt-error-message"),
+            page.inner_text("#error-mount .ilt-error-message"),
+        )
+
+        blocked = ctx.new_page()
+        blocked.goto("edge://settings")
+        result = page.evaluate(
+            """async () => {
+                const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+                return chrome.runtime.sendMessage({type: 'toggle-tab', tabId: tab.id});
+            }"""
+        )
+        check(
+            "background reports uninjectable pages",
+            result.get("ok") is False and "not available" in result.get("error", ""),
+            str(result),
+        )
+        blocked.close()
+
+        page.evaluate(
+            """() => {
+                window.__iltOriginalSend = [];
+                for (const api of [globalThis.chrome, globalThis.browser]) {
+                    if (!api?.runtime) continue;
+                    window.__iltOriginalSend.push([api.runtime, api.runtime.sendMessage]);
+                    api.runtime.sendMessage = () => Promise.resolve(undefined);
+                }
+            }"""
+        )
+        page.click("#toggle")
+        page.wait_for_function(
+            "() => document.querySelector('#error-mount .ilt-error-message').textContent.includes('background is not responding')"
+        )
+        check(
+            "missing background response has an actionable error",
+            "Reload the extension" in page.inner_text("#error-mount .ilt-error-message"),
+            page.inner_text("#error-mount .ilt-error-message"),
+        )
+        page.evaluate(
+            """() => {
+                for (const [runtime, send] of window.__iltOriginalSend) runtime.sendMessage = send;
+                delete window.__iltOriginalSend;
+            }"""
+        )
 
         page.wait_for_function("() => document.getElementById('shortcut').textContent")
         check("footer shows the bound shortcut", page.inner_text("#shortcut") == "Alt+A", page.inner_text("#shortcut"))
