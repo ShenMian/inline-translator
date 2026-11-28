@@ -512,6 +512,27 @@ export class Engine {
       if (existing.hash === p.hash && (existing.wrapper?.isConnected || existing.pending?.isConnected)) return;
       removeWrapper(existing);
       this.wrappers.delete(existing);
+    } else {
+      // Pages append/replace inline nodes inside a run, which moves its anchor. Adopt the live
+      // translation for the same source (keep its token snapshot, whose markers already match)
+      // instead of stacking another copy; a changed source drops the stale wrapper first.
+      const prevs = new Set<Paragraph>();
+      for (const n of p.nodes) {
+        const t = this.nodePara.get(n);
+        if (t && t.root === p.root && (t.wrapper?.isConnected || t.pending?.isConnected)) prevs.add(t);
+      }
+      const prev = prevs.size === 1 ? prevs.values().next().value : undefined;
+      if (prev && prev.wrapper?.isConnected && prev.hash === p.hash) {
+        for (const n of p.nodes) this.nodePara.set(n, prev);
+        prev.nodes = p.nodes;
+        prev.anchor = p.anchor;
+        return;
+      }
+      for (const t of prevs) {
+        removeWrapper(t);
+        this.wrappers.delete(t);
+        for (const n of t.nodes) if (this.nodePara.get(n) === t) this.nodePara.delete(n);
+      }
     }
     for (const n of p.nodes) this.nodePara.set(n, p);
     if (immediate) {

@@ -419,6 +419,23 @@ def run_fixture(page):
     )
     check("fixture: rapid short ticking counter skips retranslation churn", ticker_skipped)
 
+    # Inline nodes appended inside a translated run must reuse its translation, not stack copies
+    page.evaluate(
+        """() => {
+            const el = document.getElementById('prose-div');
+            for (let i = 0; i < 3; i++) {
+                const s = document.createElement('span');
+                s.id = 'churn-inline-' + i;
+                el.appendChild(s);
+            }
+        }"""
+    )
+    time.sleep(2.5)
+    check(
+        "fixture: appended inline nodes keep a single translation",
+        page.eval_on_selector("#prose-div", "el => el.querySelectorAll('.ilt-t').length === 1"),
+    )
+
     # Text change → retranslation (old wrapper removed, new one inserted async; tolerate a brief gap)
     before = page.eval_on_selector("#p1 .ilt-t", "el => el.textContent")
     page.click("#mutate-btn")
