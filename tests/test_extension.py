@@ -1,11 +1,12 @@
 """Inline Translator E2E: local fixtures + real sites, driven through system Edge."""
+import json
 import os
 import sys
 import tempfile
 import threading
 import time
 from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -20,12 +21,39 @@ EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 SHOTS = ROOT / "tests" / "screenshots"
 SHOTS.mkdir(exist_ok=True)
 
+MOCK_PORT = 8766
+MOCK_BASE = f"http://127.0.0.1:{MOCK_PORT}/v1"
+MOCK_OPENAI = {"baseUrl": MOCK_BASE, "apiKey": "test", "model": "mock"}
+
 RESULTS = []
 
 
 def check(name, cond, detail=""):
     RESULTS.append((name, bool(cond)))
     print(f"{'PASS' if cond else 'FAIL'}  {name}  {detail}", flush=True)
+
+
+class MockOpenAI(BaseHTTPRequestHandler):
+    """Deterministic translator for --fixtures-only (CI): the free Google endpoint rate-limits
+    shared runner IPs with 429, failing layout checks unrelated to the service."""
+
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(n))
+        texts = json.loads(body["messages"][1]["content"])
+        out = ["译文 " + t for t in texts]
+        data = json.dumps(
+            {"choices": [{"message": {"content": json.dumps(out, ensure_ascii=False)}}]},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
 
 def count_wrappers(page):
@@ -472,7 +500,7 @@ def run_fixture(page):
     page.screenshot(path=str(SHOTS / "fixture.png"), full_page=True)
 
 
-def run_only_rule(ctx, page, ext_id):
+def run_only_rule(ctx, page, ext_id, use_mock):
     pop = ctx.new_page()
     pop.goto(f"chrome-extension://{ext_id}/popup.html")
     pop.wait_for_selector("#rules-text", state="attached")
@@ -526,12 +554,14 @@ def run_only_rule(ctx, page, ext_id):
     page.screenshot(path=str(SHOTS / "fixture-edge.png"))
     toggle(page)
     pop.evaluate(
-        """() => chrome.storage.local.get('settings').then(r => {
+        """(cfg) => chrome.storage.local.get('settings').then(r => {
             const s = r.settings || {};
             s.customRules = [];
-            s.service = 'google';
+            s.service = cfg.service;
+            if (cfg.openai) s.openai = cfg.openai;
             return chrome.storage.local.set({ settings: s });
-        })"""
+        })""",
+        {"service": "openai", "openai": MOCK_OPENAI} if use_mock else {"service": "google"},
     )
 
     # Floating button vertical drag + persistence + click suppression, and Alt-hover single-paragraph toggle
@@ -670,7 +700,10 @@ def start_fixture_server():
 
 
 def main():
+    fixtures_only = "--fixtures-only" in sys.argv
     start_fixture_server()
+    mock = ThreadingHTTPServer(("127.0.0.1", MOCK_PORT), MockOpenAI)
+    threading.Thread(target=mock.serve_forever, daemon=True).start()
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             user_data_dir=tempfile.mkdtemp(prefix="ilt-test-"),
@@ -699,20 +732,31 @@ def main():
             if not ext_id:
                 time.sleep(0.3)
 
-        # The same-language fixture is Chinese, matching the target (zh-CN). Commit the target
-        # explicitly and reset the page before the fixture run so the content script initializes
-        # cleanly with the committed settings.
+        # The same-language fixture is Chinese, matching the target (zh-CN). Commit settings and
+        # reset the page before the fixture run so the content script initializes cleanly.
+        # --fixtures-only (CI) translates through the local mock: the free Google endpoint answers
+        # shared runner IPs with 429, failing checks that test layout rather than the service.
         pop = ctx.new_page()
         pop.goto(f"chrome-extension://{ext_id}/popup.html")
         pop.wait_for_selector("#lang")
-        pop.select_option("#lang", "zh-CN")
-        pop.wait_for_function("() => chrome.storage.local.get('settings').then(s => (s.settings || {}).targetLang === 'zh-CN')")
+        if fixtures_only:
+            pop.evaluate(
+                """(cfg) => chrome.storage.local.set({ settings: cfg })""",
+                {
+                    "targetLang": "zh-CN", "service": "openai", "auto": False, "autoSites": {},
+                    "openai": MOCK_OPENAI, "style": "none", "floating": True, "customRules": [],
+                },
+            )
+            pop.wait_for_function("() => chrome.storage.local.get('settings').then(s => (s.settings || {}).service === 'openai')")
+        else:
+            pop.select_option("#lang", "zh-CN")
+            pop.wait_for_function("() => chrome.storage.local.get('settings').then(s => (s.settings || {}).targetLang === 'zh-CN')")
         pop.close()
         page.goto("about:blank", wait_until="domcontentloaded")
 
         run_fixture(page)
-        run_only_rule(ctx, page, ext_id)
-        if "--fixtures-only" not in sys.argv:
+        run_only_rule(ctx, page, ext_id, fixtures_only)
+        if not fixtures_only:
             run_site(page, "wikipedia", "https://en.wikipedia.org/wiki/Machine_translation", 20, wiki_extra)
             run_site(page, "hackernews", "https://news.ycombinator.com/", 15, hn_extra)
             run_site(page, "github", "https://github.com/ShenMian/tracker", 10, github_extra)
